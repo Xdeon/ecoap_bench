@@ -12,10 +12,14 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
+-define(VERSION, 1).
+-define(MAX_MESSAGE_ID, 65535). % 16-bit number
+
 -record(state, {
 	server = undefined :: pid(),
 	id = undefined :: non_neg_integer(),
-	socket = undefined :: inet:socket()
+	socket = undefined :: inet:socket(),
+	nextmid = undefined :: non_neg_integer()
 }).
 
 %% API.
@@ -32,7 +36,7 @@ close(Pid) ->
 
 init([Server, ID]) ->
 	{ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
-	{ok, #state{server=Server, socket=Socket, id=ID}}.
+	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid()}}.
 
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
@@ -52,3 +56,15 @@ terminate(_Reason, _State=#state{socket=Socket}) ->
 
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
+
+%% Internal
+
+first_mid() ->
+    _ = rand:seed(exsplus),
+    rand:uniform(?MAX_MESSAGE_ID).
+
+% next_mid(MsgId) ->
+%     if
+%         MsgId < ?MAX_MESSAGE_ID -> MsgId + 1;
+%         true -> 1 % or 0?
+%     end.

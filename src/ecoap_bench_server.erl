@@ -14,7 +14,8 @@
 
 -record(state, {
 	worker_sup = undefined :: pid(),
-	worker_pids = [] :: [pid()]
+	worker_pids = [] :: [pid()],
+	worker_refs = [] :: [reference()]
 }).
 
 %% API.
@@ -44,12 +45,13 @@ init(SupPid) ->
     link(Pid),
     gen_server:enter_loop(?MODULE, [], #state{worker_sup=Pid}, {local, ?MODULE}).
 
-handle_call({start_workers, N}, _From, State=#state{worker_sup=WorkerSup}) ->
+handle_call({start_workers, N}, _From, State=#state{worker_sup=WorkerSup, worker_pids=WorkerPids, worker_refs=Refs}) ->
 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), Pid end || ID <- lists:seq(1, N)],
-	{reply, ok, State#state{worker_pids=Pids}};
+	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), [Ref|Acc] end, Refs, Pids),
+	{reply, ok, State#state{worker_pids=lists:append(WorkerPids, Pids), worker_refs=Refs2}};
 
-handle_call(shutdown_workers, _From, State=#state{worker_pids=Pids}) ->
-	[bench_worker:close(Pid) || Pid <- Pids],
+handle_call(shutdown_workers, _From, State=#state{worker_pids=WorkerPids}) ->
+	[bench_worker:close(Pid) || Pid <- WorkerPids],
 	{reply, ok, State};
 
 handle_call(_Request, _From, State) ->
@@ -57,6 +59,15 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(_Msg, State) ->
 	{noreply, State}.
+
+handle_info({'DOWN', Ref, process, Pid, Reason}, State=#state{worker_pids=WorkerPids, worker_refs=Refs}) ->
+	case lists:member(Ref, Refs) of
+		true -> 
+			_ = report_worker_error(Pid, Reason),
+			{noreply, State#state{worker_pids=lists:delete(Pid, WorkerPids), worker_refs=lists:delete(Ref, Refs)}};
+		false -> 
+			{noreply, State}
+	end;
 
 handle_info(_Info, State) ->
 	{noreply, State}.
@@ -66,3 +77,11 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
+
+%% Internal
+report_worker_error(Pid, Reason) ->
+	case Reason of
+		normal -> ok;
+		Else ->
+			error_logger:error_msg("Worker ~p carshed with reason ~p~n", [Pid, Else])
+	end.
