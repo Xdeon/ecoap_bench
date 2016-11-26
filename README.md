@@ -1,2 +1,1 @@
-## simple CoAP server benchmark tool
-
+## Simple CoAP Server Benchmark Tool
