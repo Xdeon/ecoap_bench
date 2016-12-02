@@ -34,9 +34,6 @@ start_workers(N) ->
 start_test(Time) ->
 	gen_server:cast(?MODULE, {start_test, Time}).
 
-% shutdown_workers() ->
-% 	gen_server:call(?MODULE, shutdown_workers).
-
 %% gen_server.
 
 init(SupPid) ->

@@ -8,11 +8,5 @@
 start(_Type, _Args) ->
 	ecoap_bench_sup:start_link().
 
-% start_workers(N) ->
-% 	ecoap_bench_server:start_workers(N).
-
-% shutdown_workers() ->
-% 	ecoap_bench_server:shutdown_workers().
-
 stop(_State) ->
 	ok.
