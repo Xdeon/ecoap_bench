@@ -14,4 +14,4 @@ init([]) ->
 				shutdown => 10000,
 				type => worker,
 				modules => [ecoap_bench_server]}],
-	{ok, {#{strategy => one_for_all, intensity => 3, period => 10}, Procs}}.
+	{ok, {#{strategy => one_for_all, intensity => 0, period => 1}, Procs}}.

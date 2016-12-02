@@ -3,6 +3,7 @@
 
 %% API.
 -export([start_link/2, close/1]).
+-export([start_test/1, stop_test/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -32,6 +33,12 @@ start_link(Server, ID) ->
 close(Pid) ->
 	gen_server:cast(Pid, shutdown).
 
+start_test(Pid) ->
+	gen_server:cast(Pid, start_test).
+
+stop_test(Pid) ->
+	gen_server:cast(Pid, stop_test).
+
 %% gen_server.
 
 init([Server, ID]) ->
@@ -40,6 +47,15 @@ init([Server, ID]) ->
 
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
+
+handle_cast(start_test, State=#state{id=ID}) ->
+	io:format("worker ~p start_test~n", [ID]),
+	{noreply, State};
+
+handle_cast(stop_test, State=#state{id=ID, server=Server}) ->
+	io:format("worker ~p stop_test~n", [ID]),
+	gen_server:cast(Server, {result, self(), #{sent=>0, rec=>0, timeout=>0}}),
+	{noreply, State};
 
 handle_cast(shutdown, State) ->
 	{stop, normal, State};
