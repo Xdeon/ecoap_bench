@@ -52,7 +52,7 @@ stop_test(Pid) ->
 %% gen_server.
 
 init([Server, ID]) ->
-	{ok, Socket} = gen_udp:open(0, [binary, {active, true}, {recbuf, 64*1024}]),
+	{ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
 	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid(), sent=0, rec=0, timeout=0}}.
 
 handle_call(_Request, _From, State) ->
@@ -78,7 +78,8 @@ handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, t
 handle_cast(shutdown, State) ->
 	{stop, normal, State};
 
-handle_cast(_Msg, State) ->
+handle_cast(_Msg, State=#state{id=ID}) ->
+	io:format("unexpected cast in bench_worker ~p: ~p~n", [ID, _Msg]),
 	{noreply, State}.
 
 % incoming ACK(2) response to a request with code {ok, 'Content'}(2.05)
@@ -103,7 +104,8 @@ handle_info({timeout, Timer, req_timeout},
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
 
-handle_info(_Info, State) ->
+handle_info(_Info, State=#state{id=ID}) ->
+	io:format("unexpected info in bench_worker ~p: ~p~n", [ID, _Info]),
 	{noreply, State}.
 
 terminate(_Reason, _State=#state{socket=Socket}) ->
