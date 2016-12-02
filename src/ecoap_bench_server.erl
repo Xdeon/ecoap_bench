@@ -99,7 +99,7 @@ handle_info(_Info, State) ->
 	{noreply, State}.
 
 terminate(_Reason, _State=#state{worker_pids=WorkerPids}) ->
-	shutdown_workers(WorkerPids),
+	_ = shutdown_workers(WorkerPids),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->
