@@ -20,7 +20,8 @@
 	worker_counter = undefined :: non_neg_integer(),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
-	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0}
+	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0},
+	client = undefined :: undefined | pid()
 }).
 
 %% API.
@@ -34,10 +35,18 @@ start_workers(N) ->
 
 start_test(N, Time, Uri) ->
 	start_workers(N),
-	start_test(Time, Uri).
+	start_test(Time, Uri),
+	Ref = erlang:monitor(process, whereis(?MODULE)),
+	receive
+		{test_result, TestTime, Result2} ->
+			erlang:demonitor(Ref, [flush]),
+			io:format("TestTime: ~ps~n~p~n",[TestTime/1000, Result2]);
+		{'DOWN', Ref, process, _Pid, Reason} ->
+			{error, Reason}
+	end.
 
 start_test(Time, Uri) ->
-	gen_server:cast(?MODULE, {start_test, Time, Uri}).
+	gen_server:cast(?MODULE, {start_test, Time, Uri, self()}).
 
 %% gen_server.
 
@@ -68,11 +77,11 @@ handle_call({start_workers, N}, _From,
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
 
-handle_cast({start_test, Time, Uri}, State=#state{worker_pids=WorkerPids}) ->
+handle_cast({start_test, Time, Uri, Client}, State=#state{worker_pids=WorkerPids}) ->
 	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
 	[bench_worker:start_test(Pid, Uri) || Pid <- WorkerPids],
 	StartTime = erlang:monotonic_time(),
-	{noreply, State#state{start_time=StartTime}, Time*1000};
+	{noreply, State#state{start_time=StartTime, client=Client}, Time*1000};
 
 handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}}, 
 	State=#state{result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut}, worker_counter=Cnt}) ->
@@ -81,16 +90,18 @@ handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}},
 	case Cnt - 1 of
 		0 -> 
 			gen_server:cast(self(), test_complete);
-		_Else ->
+		_Else when _Else > 0 ->
 			ok
 	end,
 	{noreply, State#state{result=NewResult, worker_counter=Cnt-1}};
 
-handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=_WorkerPids}) ->
+handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=_WorkerPids, client=Client}) ->
 	#{rec:=Rec} = Result,
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
-	io:format("TestTime: ~ps~n", [TestTime/1000]),
-	io:format("~p~n", [Result2]),
+	io:format("test_complete~n"),
+	% io:format("TestTime: ~ps~n", [TestTime/1000]),
+	% io:format("~p~n", [Result2]),
+	Client ! {test_result, TestTime, Result2},
 	% shutdown_workers(WorkerPids),
 	{noreply, State#state{start_worker_id=1, result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}}};
 
