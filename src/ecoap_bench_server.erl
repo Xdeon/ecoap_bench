@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API.
--export([start_link/1, start_workers/1, start_test/1]).
+-export([start_link/1, start_workers/1, start_test/3, start_test/2]).
 
 %% gen_server.
 -export([init/1]).
@@ -31,8 +31,12 @@ start_link(SupPid) ->
 start_workers(N) ->
 	gen_server:call(?MODULE, {start_workers, N}).
 
-start_test(Time) ->
-	gen_server:cast(?MODULE, {start_test, Time}).
+start_test(N, Time, Uri) ->
+	start_workers(N),
+	start_test(Time, Uri).
+
+start_test(Time, Uri) ->
+	gen_server:cast(?MODULE, {start_test, Time, Uri}).
 
 %% gen_server.
 
@@ -61,15 +65,17 @@ handle_call({start_workers, N}, _From, State=#state{start_worker_id=StartID, wor
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
 
-handle_cast({start_test, Time}, State=#state{worker_pids=WorkerPids}) ->
-	[bench_worker:start_test(Pid) || Pid <- WorkerPids],
+handle_cast({start_test, Time, Uri}, State=#state{worker_pids=WorkerPids}) ->
+	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
+	[bench_worker:start_test(Pid, Uri) || Pid <- WorkerPids],
 	StartTime = erlang:monotonic_time(),
 	{noreply, State#state{start_time=StartTime}, Time*1000};
 
-handle_cast({result, Pid, #{sent:=WSent, rec:=WRec, timeout:=WTimeOut}}, 
+handle_cast({result, Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}}, 
 	State=#state{worker_pids=WorkerPids, result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut}}) ->
 	case lists:member(Pid, WorkerPids) of
 		true ->
+			% io:format("worker result: ~p~n", [_R]),
 			bench_worker:close(Pid),
 			NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
 			{noreply, State#state{result=NewResult}};
@@ -81,7 +87,7 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime}) ->
 	#{rec:=Rec} = Result,
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
 	io:format("~p~n", [Result2]),
-	{noreply, State#state{start_worker_id=1}};
+	{noreply, State#state{start_worker_id=1, result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}}};
 
 handle_cast(_Msg, State) ->
 	{noreply, State}.

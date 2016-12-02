@@ -1,9 +1,11 @@
 -module(bench_worker).
 -behaviour(gen_server).
 
+-include("coap_def.hrl").
+
 %% API.
 -export([start_link/2, close/1]).
--export([start_test/1, stop_test/1]).
+-export([start_test/2, stop_test/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -15,12 +17,19 @@
 
 -define(VERSION, 1).
 -define(MAX_MESSAGE_ID, 65535). % 16-bit number
+-define(TIMEOUT, 10000).
 
 -record(state, {
 	server = undefined :: pid(),
 	id = undefined :: non_neg_integer(),
 	socket = undefined :: inet:socket(),
-	nextmid = undefined :: non_neg_integer()
+	nextmid = undefined :: non_neg_integer(),
+	req = undefined :: undefined | coap_message(),
+	ep_id = undefined :: undefined| {inet:ip_address(), inet:port_number()},
+	sent = 0 :: non_neg_integer(),
+	rec = 0 :: non_neg_integer(),
+	timeout = 0 :: non_neg_integer(),
+	timer = undefined :: undefined | reference()
 }).
 
 %% API.
@@ -33,8 +42,8 @@ start_link(Server, ID) ->
 close(Pid) ->
 	gen_server:cast(Pid, shutdown).
 
-start_test(Pid) ->
-	gen_server:cast(Pid, start_test).
+start_test(Pid, Uri) ->
+	gen_server:cast(Pid, {start_test, Uri}).
 
 stop_test(Pid) ->
 	gen_server:cast(Pid, stop_test).
@@ -42,19 +51,27 @@ stop_test(Pid) ->
 %% gen_server.
 
 init([Server, ID]) ->
-	{ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
+	{ok, Socket} = gen_udp:open(0, [binary, {active, true}, {recbuf, 64*1024}]),
 	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid()}}.
 
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
 
-handle_cast(start_test, State=#state{id=ID}) ->
-	io:format("worker ~p start_test~n", [ID]),
-	{noreply, State};
+handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId, sent=Sent}) ->
+	% io:format("worker ~p start_test~n", [ID]),
+	% io:format("start_test at ~p~n", [erlang:monotonic_time()]),
+	{EpID={PeerIP, PeerPortNo}, Path, Query} = resolve_uri(Uri),
+	Options = append_option({'Uri-Query', Query}, append_option({'Uri-Path', Path}, [])),
+	Request0 = coap_message_utils:request('CON', 'GET', <<>>, Options),
+	Request1 = Request0#coap_message{id=MsgId},
+	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
+	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
+	{noreply, State#state{req=Request1, ep_id=EpID, sent=Sent+1, timer=Timer}};
 
-handle_cast(stop_test, State=#state{id=ID, server=Server}) ->
-	io:format("worker ~p stop_test~n", [ID]),
-	gen_server:cast(Server, {result, self(), #{sent=>0, rec=>0, timeout=>0}}),
+handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut}) ->
+	% io:format("worker ~p stop_test~n", [ID]),
+	% io:format("stop_test at ~p~n", [erlang:monotonic_time()]),
+	gen_server:cast(Server, {result, self(), #{sent=>Sent, rec=>Rec, timeout=>TimeOut}}),
 	{noreply, State};
 
 handle_cast(shutdown, State) ->
@@ -62,6 +79,24 @@ handle_cast(shutdown, State) ->
 
 handle_cast(_Msg, State) ->
 	{noreply, State}.
+
+handle_info({udp, Socket, PeerIP, PeerPortNo, Bin}, 
+	State=#state{id=ID, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer}) ->
+	#coap_message{id=InMsgid, type=Type, code=Code} = coap_message:decode(Bin),
+	case {InMsgid, Type, Code} of
+		{MsgId, 'ACK', {ok, 'Content'}} ->
+			_ = erlang:cancel_timer(Timer),
+			NextMsgId = next_mid(MsgId),
+			ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
+			NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
+			{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
+		_ -> 
+			io:format("Recv unexpected msg in worker ~p~n", [ID]),
+			{noreply, State}
+	end;
+
+handle_info({timeout, Timer, req_timeout}, State=#state{timer=Timer, timeout=TimeOut}) ->
+	{noreply, State#state{timeout=TimeOut+1}};
 
 handle_info(_Info, State) ->
 	{noreply, State}.
@@ -79,8 +114,36 @@ first_mid() ->
     _ = rand:seed(exsplus),
     rand:uniform(?MAX_MESSAGE_ID).
 
-% next_mid(MsgId) ->
-%     if
-%         MsgId < ?MAX_MESSAGE_ID -> MsgId + 1;
-%         true -> 1 % or 0?
-%     end.
+next_mid(MsgId) ->
+    if
+        MsgId < ?MAX_MESSAGE_ID -> MsgId + 1;
+        true -> 1 % or 0?
+    end.
+
+resolve_uri(Uri) ->
+    {ok, {_Scheme, _UserInfo, Host, PortNo, Path, Query}} =
+        http_uri:parse(Uri, [{scheme_defaults, [{coap, 5683}]}]),
+    {ok, PeerIP} = inet:getaddr(Host, inet),
+    {{PeerIP, PortNo}, split_path(Path), split_query(Query)}.
+
+split_path([]) -> [];
+split_path([$/]) -> [];
+split_path([$/ | Path]) -> split_segments(Path, $/, []).
+
+split_query([]) -> [];
+split_query([$? | Path]) -> split_segments(Path, $&, []).
+
+split_segments(Path, Char, Acc) ->
+    case string:rchr(Path, Char) of
+        0 ->
+            [make_segment(Path) | Acc];
+        N when N > 0 ->
+            split_segments(string:substr(Path, 1, N-1), Char,
+                [make_segment(string:substr(Path, N+1)) | Acc])
+    end.
+
+make_segment(Seg) ->
+    list_to_binary(http_uri:decode(Seg)).
+
+append_option({Option, Value}, Options) ->
+	lists:keystore(Option, 1, Options, {Option, Value}).
