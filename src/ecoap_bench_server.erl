@@ -90,7 +90,7 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worke
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
 	io:format("~p~n", [Result2]),
 	% shutdown_workers(WorkerPids),
-	{noreply, State#state{start_worker_id=1, result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_counter=0}};
+	{noreply, State#state{start_worker_id=1, result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}}};
 
 handle_cast(_Msg, State) ->
 	io:format("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
