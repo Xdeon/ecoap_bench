@@ -14,10 +14,10 @@
 
 -record(state, {
 	worker_sup = undefined :: pid(),
-	start_worker_id = 1 :: non_neg_integer(),
-	worker_pids = [] :: [pid()],
-	worker_refs = [] :: [reference()],
-	worker_counter = 0 :: non_neg_integer(),
+	start_worker_id = undefined :: non_neg_integer(),
+	worker_pids = undefined :: [pid()],
+	worker_refs = undefined :: gb_sets:set(reference()),
+	worker_counter = undefined :: non_neg_integer(),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
 	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0}
@@ -52,12 +52,13 @@ init(SupPid) ->
 		type => supervisor,
 		modules => [bench_worker_sup]}),
     link(Pid),
-    gen_server:enter_loop(?MODULE, [], #state{worker_sup=Pid}, {local, ?MODULE}).
+    gen_server:enter_loop(?MODULE, [], 
+    	#state{worker_sup=Pid, start_worker_id=1, worker_pids=[], worker_refs=gb_sets:new(), worker_counter=0}, {local, ?MODULE}).
 
 handle_call({start_workers, N}, _From, 
 	State=#state{start_worker_id=StartID, worker_sup=WorkerSup, worker_pids=WorkerPids, worker_refs=Refs, worker_counter=Cnt}) ->
 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), Pid end || ID <- lists:seq(StartID, StartID+N-1)],
-	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), [Ref|Acc] end, Refs, Pids),
+	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
 	{reply, ok, State#state{start_worker_id=StartID+N, worker_pids=lists:append(WorkerPids, Pids), worker_refs=Refs2, worker_counter=Cnt+N}};
 
 % handle_call(shutdown_workers, _From, State=#state{worker_pids=WorkerPids}) ->
@@ -88,6 +89,7 @@ handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}},
 handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=_WorkerPids}) ->
 	#{rec:=Rec} = Result,
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
+	io:format("TestTime: ~ps~n", [TestTime/1000]),
 	io:format("~p~n", [Result2]),
 	% shutdown_workers(WorkerPids),
 	{noreply, State#state{start_worker_id=1, result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}}};
@@ -99,7 +101,6 @@ handle_cast(_Msg, State) ->
 handle_info(timeout, State=#state{worker_pids=WorkerPids, start_time=StartTime}) ->
 	[bench_worker:stop_test(Pid) || Pid <- WorkerPids],
 	TestTime = erlang:convert_time_unit(erlang:monotonic_time() - StartTime, native, milli_seconds),
-	io:format("TestTime: ~ps~n", [TestTime/1000]),
 	{noreply, State#state{test_time=TestTime}};
 
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
@@ -118,12 +119,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal
 handle_down_worker(Ref, Pid, Reason, State=#state{worker_pids=WorkerPids, worker_refs=Refs}) ->
-	case lists:member(Ref, Refs) of
+	case gb_sets:is_member(Ref, Refs) of
 		true -> 
 			case Reason of
 				normal -> 
 					NewWorkerPids = lists:delete(Pid, WorkerPids),
-					NewWorkerRefs = lists:delete(Ref, Refs),
+					NewWorkerRefs = gb_sets:delete(Ref, Refs),
 					{noreply, State#state{worker_pids=NewWorkerPids, worker_refs=NewWorkerRefs}};
 				Else ->
 					error_logger:error_msg("Worker ~p carshed with reason ~p~n", [Pid, Else]),

@@ -84,7 +84,7 @@ handle_cast(_Msg, State=#state{id=ID}) ->
 
 % incoming ACK(2) response to a request with code {ok, 'Content'}(2.05)
 handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, 5:5, MsgId:16, _/bytes>>}, 
-	State=#state{socket=Socket, ep_id={PeerIP, PeerPortNo}, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer}) ->
+	State=#state{socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer}) ->
 	_ = erlang:cancel_timer(Timer),
 	NextMsgId = next_mid(MsgId),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
@@ -92,8 +92,8 @@ handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, 5:
 	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
 
 % incoming ACK(2) response to a request with other response code
-handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, _Code:8, MsgId:16, _/bytes>>}, 
-	State=#state{id=ID, socket=Socket, ep_id={PeerIP, PeerPortNo}, nextmid=MsgId}) ->
+handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, _Code:8, MsgId:16, _/bytes>>}, 
+	State=#state{id=ID, socket=Socket, nextmid=MsgId}) ->
 	io:format("Recv msg with unexpected response code in worker ~p~n", [ID]),
 	{stop, unexpected_code, State};
 
