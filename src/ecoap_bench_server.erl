@@ -71,17 +71,11 @@ handle_cast({start_test, Time, Uri}, State=#state{worker_pids=WorkerPids}) ->
 	StartTime = erlang:monotonic_time(),
 	{noreply, State#state{start_time=StartTime}, Time*1000};
 
-handle_cast({result, Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}}, 
-	State=#state{worker_pids=WorkerPids, result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut}}) ->
-	case lists:member(Pid, WorkerPids) of
-		true ->
-			% io:format("worker result: ~p~n", [_R]),
-			bench_worker:close(Pid),
-			NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
-			{noreply, State#state{result=NewResult}};
-		false ->
-			{noreply, State}
-	end;
+handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}}, 
+	State=#state{result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut}}) ->
+	% io:format("worker result: ~p~n", [_R]),
+	NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
+	{noreply, State#state{result=NewResult}};
 
 handle_cast(test_complete, State=#state{result=Result, test_time=TestTime}) ->
 	#{rec:=Rec} = Result,
@@ -120,7 +114,8 @@ handle_down_worker(Ref, Pid, Reason, State=#state{worker_pids=WorkerPids, worker
 					NewWorkerPids = lists:delete(Pid, WorkerPids),
 					NewWorkerRefs = lists:delete(Ref, Refs),
 					case NewWorkerPids of
-						[] -> gen_server:cast(self(), test_complete);
+						[] -> 
+							gen_server:cast(self(), test_complete);
 						_ -> ok
 					end, 
 					{noreply, State#state{worker_pids=NewWorkerPids, worker_refs=NewWorkerRefs}};

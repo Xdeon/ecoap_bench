@@ -23,12 +23,13 @@
 	server = undefined :: pid(),
 	id = undefined :: non_neg_integer(),
 	socket = undefined :: inet:socket(),
+	% msgid_store = undefined :: map(),
 	nextmid = undefined :: non_neg_integer(),
 	req = undefined :: undefined | coap_message(),
 	ep_id = undefined :: undefined| {inet:ip_address(), inet:port_number()},
-	sent = 0 :: non_neg_integer(),
-	rec = 0 :: non_neg_integer(),
-	timeout = 0 :: non_neg_integer(),
+	sent = undefined :: non_neg_integer(),
+	rec = undefined :: non_neg_integer(),
+	timeout = undefined :: non_neg_integer(),
 	timer = undefined :: undefined | reference()
 }).
 
@@ -52,12 +53,12 @@ stop_test(Pid) ->
 
 init([Server, ID]) ->
 	{ok, Socket} = gen_udp:open(0, [binary, {active, true}, {recbuf, 64*1024}]),
-	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid()}}.
+	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid(), sent=0, rec=0, timeout=0}}.
 
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
 
-handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId, sent=Sent}) ->
+handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
 	% io:format("worker ~p start_test~n", [ID]),
 	% io:format("start_test at ~p~n", [erlang:monotonic_time()]),
 	{EpID={PeerIP, PeerPortNo}, Path, Query} = resolve_uri(Uri),
@@ -66,13 +67,13 @@ handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{req=Request1, ep_id=EpID, sent=Sent+1, timer=Timer}};
+	{noreply, State#state{req=Request1, ep_id=EpID, sent=1, timer=Timer}};
 
 handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut}) ->
 	% io:format("worker ~p stop_test~n", [ID]),
 	% io:format("stop_test at ~p~n", [erlang:monotonic_time()]),
 	gen_server:cast(Server, {result, self(), #{sent=>Sent, rec=>Rec, timeout=>TimeOut}}),
-	{noreply, State};
+	{stop, normal, State};
 
 handle_cast(shutdown, State) ->
 	{stop, normal, State};
@@ -80,23 +81,27 @@ handle_cast(shutdown, State) ->
 handle_cast(_Msg, State) ->
 	{noreply, State}.
 
-handle_info({udp, Socket, PeerIP, PeerPortNo, Bin}, 
-	State=#state{id=ID, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer}) ->
-	#coap_message{id=InMsgid, type=Type, code=Code} = coap_message:decode(Bin),
-	case {InMsgid, Type, Code} of
-		{MsgId, 'ACK', {ok, 'Content'}} ->
-			_ = erlang:cancel_timer(Timer),
-			NextMsgId = next_mid(MsgId),
-			ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
-			NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-			{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
-		_ -> 
-			io:format("Recv unexpected msg in worker ~p~n", [ID]),
-			{noreply, State}
-	end;
+% incoming ACK(2) response to a request with code {ok, 'Content'}(2.05)
+handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, 5:5, MsgId:16, _/bytes>>}, 
+	State=#state{socket=Socket, ep_id={PeerIP, PeerPortNo}, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer}) ->
+	_ = erlang:cancel_timer(Timer),
+	NextMsgId = next_mid(MsgId),
+	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
+	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
+	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
 
-handle_info({timeout, Timer, req_timeout}, State=#state{timer=Timer, timeout=TimeOut}) ->
-	{noreply, State#state{timeout=TimeOut+1}};
+% incoming ACK(2) response to a request with other response code
+handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, _Code:8, MsgId:16, _/bytes>>}, 
+	State=#state{id=ID, socket=Socket, ep_id={PeerIP, PeerPortNo}, nextmid=MsgId}) ->
+	io:format("Recv msg with unexpected response code in worker ~p~n", [ID]),
+	{stop, unexpected_code, State};
+
+handle_info({timeout, Timer, req_timeout}, 
+	State=#state{ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
+	NextMsgId = next_mid(MsgId),
+	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
+	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
+	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
 
 handle_info(_Info, State) ->
 	{noreply, State}.
