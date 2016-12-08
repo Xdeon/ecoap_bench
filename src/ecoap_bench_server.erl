@@ -31,7 +31,7 @@ start_link(SupPid) ->
 	proc_lib:start_link(?MODULE, init, [SupPid]).
 
 start_workers(N) ->
-	gen_server:call(?MODULE, {start_workers, N}, 10000).
+	gen_server:call(?MODULE, {start_workers, N}, 30000).
 
 start_test(N, Time, Uri) ->
 	start_workers(N),
