@@ -56,7 +56,7 @@ init([Server, ID]) ->
 	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid(), sent=0, rec=0, timeout=0}}.
 
 handle_call(_Request, _From, State) ->
-	{reply, ignored, State}.
+	{noreply, State}.
 
 handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
 	% io:format("worker ~p start_test~n", [ID]),

@@ -14,9 +14,9 @@
 
 -record(state, {
 	worker_sup = undefined :: pid(),
-	start_worker_id = undefined :: non_neg_integer(),
+	% start_worker_id = undefined :: non_neg_integer(),
 	worker_pids = undefined :: [pid()],
-	worker_refs = undefined :: gb_sets:set(reference()),
+	% worker_refs = undefined :: gb_sets:set(reference()),
 	worker_counter = undefined :: non_neg_integer(),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
@@ -62,20 +62,26 @@ init(SupPid) ->
 		modules => [bench_worker_sup]}),
     link(Pid),
     gen_server:enter_loop(?MODULE, [], 
-    	#state{worker_sup=Pid, start_worker_id=1, worker_pids=[], worker_refs=gb_sets:new(), worker_counter=0}, {local, ?MODULE}).
+    	#state{worker_sup=Pid, worker_pids=[], worker_counter=0}, {local, ?MODULE}).
 
-handle_call({start_workers, N}, _From, 
-	State=#state{start_worker_id=StartID, worker_sup=WorkerSup, worker_pids=WorkerPids, worker_refs=Refs, worker_counter=Cnt}) ->
-	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), Pid end || ID <- lists:seq(StartID, StartID+N-1)],
-	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
-	{reply, ok, State#state{start_worker_id=StartID+N, worker_pids=lists:append(WorkerPids, Pids), worker_refs=Refs2, worker_counter=Cnt+N}};
+% handle_call({start_workers, N}, _From, 
+% 	State=#state{start_worker_id=StartID, worker_sup=WorkerSup, worker_pids=WorkerPids, worker_refs=Refs, worker_counter=Cnt}) ->
+% 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), Pid end || ID <- lists:seq(StartID, StartID+N-1)],
+% 	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
+% 	{reply, ok, State#state{start_worker_id=StartID+N, worker_pids=lists:append(WorkerPids, Pids), worker_refs=Refs2, worker_counter=Cnt+N}};
+
+handle_call({start_workers, N}, _From, State=#state{worker_sup=WorkerSup, worker_pids=WorkerPids}) -> 
+	_ = shutdown_workers(WorkerPids),
+	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), link(Pid), Pid end || ID <- lists:seq(1, N)],
+	% Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
+	{reply, ok, State#state{worker_pids=Pids, worker_counter=N}};
 
 % handle_call(shutdown_workers, _From, State=#state{worker_pids=WorkerPids}) ->
 % 	[bench_worker:close(Pid) || Pid <- WorkerPids],
 % 	{reply, ok, State#state{worker_pids=[]}};
 
 handle_call(_Request, _From, State) ->
-	{reply, ignored, State}.
+	{noreply, State}.
 
 handle_cast({start_test, Time, Uri, Client}, State=#state{worker_pids=WorkerPids}) ->
 	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
@@ -95,15 +101,15 @@ handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}},
 	end,
 	{noreply, State#state{result=NewResult, worker_counter=Cnt-1}};
 
-handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=_WorkerPids, client=Client}) ->
+handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=WorkerPids, client=Client}) ->
 	#{rec:=Rec} = Result,
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
 	io:format("test_complete~n"),
 	% io:format("TestTime: ~ps~n", [TestTime/1000]),
 	% io:format("~p~n", [Result2]),
 	Client ! {test_result, TestTime, Result2},
-	% shutdown_workers(WorkerPids),
-	{noreply, State#state{start_worker_id=1, result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}}};
+	_ = shutdown_workers(WorkerPids),
+	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_pids=[]}};
 
 handle_cast(_Msg, State) ->
 	io:format("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
@@ -114,8 +120,8 @@ handle_info(timeout, State=#state{worker_pids=WorkerPids, start_time=StartTime})
 	TestTime = erlang:convert_time_unit(erlang:monotonic_time() - StartTime, native, milli_seconds),
 	{noreply, State#state{test_time=TestTime}};
 
-handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
-	handle_down_worker(Ref, Pid, Reason, State);
+% handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
+% 	handle_down_worker(Ref, Pid, Reason, State);
 
 handle_info(_Info, State) ->
 	io:format("unexpected info in ecoap_bench_server: ~p~n", [_Info]),
@@ -129,21 +135,22 @@ code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
 
 %% Internal
-handle_down_worker(Ref, Pid, Reason, State=#state{worker_pids=WorkerPids, worker_refs=Refs}) ->
-	case gb_sets:is_member(Ref, Refs) of
-		true -> 
-			case Reason of
-				normal -> 
-					NewWorkerPids = lists:delete(Pid, WorkerPids),
-					NewWorkerRefs = gb_sets:delete(Ref, Refs),
-					{noreply, State#state{worker_pids=NewWorkerPids, worker_refs=NewWorkerRefs}};
-				Else ->
-					error_logger:error_msg("Worker ~p carshed with reason ~p~n", [Pid, Else]),
-					{stop, normal, State}
-			end;
-		false ->
-			{noreply, State}
-	end.
+% handle_down_worker(Ref, Pid, Reason, State=#state{worker_pids=WorkerPids, worker_refs=Refs}) ->
+% 	case gb_sets:is_member(Ref, Refs) of
+% 		true -> 
+% 			case Reason of
+% 				normal -> 
+% 					% NewWorkerPids = lists:delete(Pid, WorkerPids),
+% 					% NewWorkerRefs = gb_sets:delete(Ref, Refs),
+% 					% {noreply, State#state{worker_pids=NewWorkerPids, worker_refs=NewWorkerRefs}};
+% 					{noreply, State};
+% 				Else ->
+% 					error_logger:error_msg("Worker ~p carshed with reason ~p~n", [Pid, Else]),
+% 					{stop, normal, State}
+% 			end;
+% 		false ->
+% 			{noreply, State}
+% 	end.
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
