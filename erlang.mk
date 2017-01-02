@@ -16,7 +16,7 @@
 
 ERLANG_MK_FILENAME := $(realpath $(lastword $(MAKEFILE_LIST)))
 
-ERLANG_MK_VERSION = 2016.11.03-9-ge519628
+ERLANG_MK_VERSION = 2016.12.08-2-g1361da6
 
 # Make 3.81 and 3.82 are deprecated.
 
@@ -4862,7 +4862,7 @@ endif
 
 ifeq ($(wildcard src/$(PROJECT_MOD).erl),)
 define app_file
-{application, $(PROJECT), [
+{application, '$(PROJECT)', [
 	{description, "$(PROJECT_DESCRIPTION)"},
 	{vsn, "$(PROJECT_VERSION)"},$(if $(IS_DEP),
 	{id$(comma)$(space)"$(1)"}$(comma))
@@ -4874,7 +4874,7 @@ define app_file
 endef
 else
 define app_file
-{application, $(PROJECT), [
+{application, '$(PROJECT)', [
 	{description, "$(PROJECT_DESCRIPTION)"},
 	{vsn, "$(PROJECT_VERSION)"},$(if $(IS_DEP),
 	{id$(comma)$(space)"$(1)"}$(comma))
@@ -5262,6 +5262,7 @@ MAN_VERSION ?= $(PROJECT_VERSION)
 define asciidoc2man.erl
 try
 	[begin
+		io:format(" ADOC   ~s~n", [F]),
 		ok = asciideck:to_manpage(asciideck:parse_file(F), #{
 			compress => gzip,
 			outdir => filename:dirname(F),
@@ -5270,7 +5271,8 @@ try
 		})
 	end || F <- [$(shell echo $(addprefix $(comma)\",$(addsuffix \",$1)) | sed 's/^.//')]],
 	halt(0)
-catch _:_ ->
+catch C:E ->
+	io:format("Exception ~p:~p~nStacktrace: ~p~n", [C, E, erlang:get_stacktrace()]),
 	halt(1)
 end.
 endef
@@ -6218,8 +6220,10 @@ define filter_opts.erl
 endef
 
 $(DIALYZER_PLT): deps app
-	$(verbose) dialyzer --build_plt --apps erts kernel stdlib $(PLT_APPS) $(OTP_DEPS) $(LOCAL_DEPS) \
-		`test -f $(ERLANG_MK_TMP)/deps.log && cat $(ERLANG_MK_TMP)/deps.log`
+	$(eval DEPS_LOG := $(shell test -f $(ERLANG_MK_TMP)/deps.log && \
+		while read p; do test -d $$p/ebin && echo $$p/ebin; done <$(ERLANG_MK_TMP)/deps.log))
+	$(verbose) dialyzer --build_plt --apps erts kernel stdlib \
+		$(PLT_APPS) $(OTP_DEPS) $(LOCAL_DEPS) $(DEPS_LOG)
 
 plt: $(DIALYZER_PLT)
 
@@ -6305,7 +6309,7 @@ escript:: escript-zip
 	$(verbose) chmod +x $(ESCRIPT_FILE)
 
 distclean-escript:
-	$(gen_verbose) rm -f $(ESCRIPT_NAME)
+	$(gen_verbose) rm -f $(ESCRIPT_FILE)
 
 # Copyright (c) 2015-2016, Loïc Hoguin <essen@ninenines.eu>
 # Copyright (c) 2014, Enrique Fernandez <enrique.fernandez@erlang-solutions.com>
