@@ -20,7 +20,7 @@
 	worker_counter = undefined :: non_neg_integer(),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
-	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0},
+	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0, rtt_95p=>0},
 	client = undefined :: undefined | pid()
 }).
 
@@ -89,10 +89,10 @@ handle_cast({start_test, Time, Uri, Client}, State=#state{worker_pids=WorkerPids
 	StartTime = erlang:monotonic_time(),
 	{noreply, State#state{start_time=StartTime, client=Client}, Time*1000};
 
-handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}}, 
-	State=#state{result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut}, worker_counter=Cnt}) ->
+handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut, rtt_95p:=Current_RTT_95p}}, 
+	State=#state{result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut, rtt_95p:=RTT_95p}, worker_counter=Cnt}) ->
 	% io:format("worker result: ~p~n", [_R]),
-	NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
+	NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut, rtt_95p:=max(Current_RTT_95p, RTT_95p)},
 	case Cnt - 1 of
 		0 -> 
 			gen_server:cast(self(), test_complete);
@@ -102,14 +102,14 @@ handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}},
 	{noreply, State#state{result=NewResult, worker_counter=Cnt-1}};
 
 handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=WorkerPids, client=Client}) ->
-	#{rec:=Rec} = Result,
-	Result2 = Result#{throughput:=Rec/TestTime*1000},
+	#{rec:=Rec, rtt_95p:=RTT_95p} = Result,
+	Result2 = Result#{throughput:=Rec/TestTime*1000, rtt_95p:=RTT_95p/1000},
 	io:format("test_complete~n"),
 	% io:format("TestTime: ~ps~n", [TestTime/1000]),
 	% io:format("~p~n", [Result2]),
 	Client ! {test_result, TestTime, Result2},
 	_ = shutdown_workers(WorkerPids),
-	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_pids=[]}};
+	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0, rtt_95p:=0}, worker_pids=[]}};
 
 handle_cast(_Msg, State) ->
 	io:format("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),

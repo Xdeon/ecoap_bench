@@ -30,7 +30,9 @@
 	sent = undefined :: non_neg_integer(),
 	rec = undefined :: non_neg_integer(),
 	timeout = undefined :: non_neg_integer(),
-	timer = undefined :: undefined | reference()
+	timer = undefined :: undefined | reference(),
+	timestamp = undefined :: undefined | integer(),
+	rtt = [] :: [non_neg_integer()]
 }).
 
 %% API.
@@ -67,12 +69,14 @@ handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{req=Request1, ep_id=EpID, sent=1, timer=Timer}};
+	{noreply, State#state{req=Request1, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time()}};
 
-handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut}) ->
+handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, rtt=RTT}) ->
 	% io:format("worker ~p stop_test~n", [ID]),
 	% io:format("stop_test at ~p~n", [erlang:monotonic_time()]),
-	gen_server:cast(Server, {result, self(), #{sent=>Sent, rec=>Rec, timeout=>TimeOut}}),
+	RTT_in_ms = lists:sort(lists:map(fun(T) -> erlang:convert_time_unit(T, native, milli_seconds) end, RTT)),
+	RTT_95p = lists:nth(trunc(0.95*(length(RTT_in_ms)-1)+1), RTT_in_ms),
+	gen_server:cast(Server, {result, self(), #{sent=>Sent, rec=>Rec, timeout=>TimeOut, rtt_95p=>RTT_95p}}),
 	{stop, normal, State};
 
 handle_cast(shutdown, State) ->
@@ -84,12 +88,13 @@ handle_cast(_Msg, State=#state{id=ID}) ->
 
 % incoming ACK(2) response to a request with code {ok, 'Content'}(2.05)
 handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, 5:5, MsgId:16, _/bytes>>}, 
-	State=#state{socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer}) ->
+	State=#state{socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer, timestamp=Timestamp, rtt=RTT}) ->
 	_ = erlang:cancel_timer(Timer),
 	NextMsgId = next_mid(MsgId),
+	CurrentRTT = erlang:monotonic_time() - Timestamp,
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
+	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time(), rtt=[CurrentRTT|RTT]}};
 
 % incoming ACK(2) response to a request with other response code
 handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, _Code:8, MsgId:16, _/bytes>>}, 
