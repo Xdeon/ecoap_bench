@@ -6,7 +6,6 @@ DEPS += hdr_histogram_erl
 dep_hdr_histogram_erl = git https://github.com/HdrHistogram/hdr_histogram_erl master
 
 DEPS += edown
-dep_edown = git https://github.com/uwiger/edown.git master
 
 include erlang.mk
 
