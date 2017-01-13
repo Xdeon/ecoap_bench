@@ -122,7 +122,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal
 
 first_mid() ->
-    _ = rand:seed(exsplus),
+    _ = rand:seed(exs1024),
     rand:uniform(?MAX_MESSAGE_ID).
 
 next_mid(MsgId) ->
