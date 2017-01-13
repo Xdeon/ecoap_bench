@@ -110,18 +110,18 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worke
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
 	io:format("test_complete~n"),
 	io:format("Min ~pms~n", [hdr_histogram:min(Main_HDR_Ref)/1000]),
+    io:format("Max ~pms~n", [hdr_histogram:max(Main_HDR_Ref)/1000]),
     io:format("Mean ~.3fms~n", [hdr_histogram:mean(Main_HDR_Ref)/1000]),
     io:format("Median ~.3fms~n", [hdr_histogram:median(Main_HDR_Ref)/1000]),
-    io:format("Max ~pms~n", [hdr_histogram:max(Main_HDR_Ref)/1000]),
-    io:format("Stddev ~.3f~n", [hdr_histogram:stddev(Main_HDR_Ref)]),
+    io:format("Stddev ~.3fms~n", [hdr_histogram:stddev(Main_HDR_Ref)/1000]),
     io:format("95ile ~.3fms~n", [hdr_histogram:percentile(Main_HDR_Ref,95.0)/1000]),
     io:format("Memory Size ~p~n", [hdr_histogram:get_memory_size(Main_HDR_Ref)]),
     io:format("Total Count ~p~n", [hdr_histogram:get_total_count(Main_HDR_Ref)]),
 	% io:format("TestTime: ~ps~n", [TestTime/1000]),
 	% io:format("~p~n", [Result2]),
-	Client ! {test_result, TestTime, Result2},
 	_ = shutdown_workers(WorkerPids),
 	ok = hdr_histogram:close(Main_HDR_Ref),
+	Client ! {test_result, TestTime, Result2},
 	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_pids=[]}};
 
 handle_cast(_Msg, State) ->

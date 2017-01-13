@@ -106,7 +106,7 @@ handle_info({timeout, Timer, req_timeout},
 	NextMsgId = next_mid(MsgId),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer}};
+	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
 
 handle_info(_Info, State=#state{id=ID}) ->
 	io:format("unexpected info in bench_worker ~p: ~p~n", [ID, _Info]),
