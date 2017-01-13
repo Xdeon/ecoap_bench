@@ -108,8 +108,8 @@ handle_info({timeout, Timer, req_timeout},
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
 
-handle_info(_Info, State=#state{id=ID}) ->
-	io:format("unexpected info in bench_worker ~p: ~p~n", [ID, _Info]),
+handle_info(_Info, State=#state{id=_ID}) ->
+	% io:format("unexpected info in bench_worker ~p: ~p~n", [ID, _Info]),
 	{noreply, State}.
 
 terminate(_Reason, _State=#state{socket=Socket}) ->
