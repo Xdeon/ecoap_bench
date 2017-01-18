@@ -32,7 +32,7 @@ start_link(SupPid) ->
 	proc_lib:start_link(?MODULE, init, [SupPid]).
 
 start_workers(N) ->
-	gen_server:call(?MODULE, {start_workers, N}, 30000).
+	gen_server:cast(?MODULE, {start_workers, N}).
 
 start_test(N, Time, Uri) ->
 	start_workers(N),
@@ -71,12 +71,6 @@ init(SupPid) ->
 % 	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
 % 	{reply, ok, State#state{start_worker_id=StartID+N, worker_pids=lists:append(WorkerPids, Pids), worker_refs=Refs2, worker_counter=Cnt+N}};
 
-handle_call({start_workers, N}, _From, State=#state{worker_sup=WorkerSup, worker_pids=WorkerPids}) -> 
-	_ = shutdown_workers(WorkerPids),
-	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), link(Pid), Pid end || ID <- lists:seq(1, N)],
-	% Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
-	{reply, ok, State#state{worker_pids=Pids, worker_counter=N}};
-
 % handle_call(shutdown_workers, _From, State=#state{worker_pids=WorkerPids}) ->
 % 	[bench_worker:close(Pid) || Pid <- WorkerPids],
 % 	{reply, ok, State#state{worker_pids=[]}};
@@ -84,6 +78,11 @@ handle_call({start_workers, N}, _From, State=#state{worker_sup=WorkerSup, worker
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
+handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup, worker_pids=WorkerPids}) -> 
+	_ = shutdown_workers(WorkerPids),
+	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), link(Pid), Pid end || ID <- lists:seq(1, N)],
+	% Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
+	{noreply, State#state{worker_pids=Pids, worker_counter=N}};
 handle_cast({start_test, Time, Uri, Client}, State=#state{worker_pids=WorkerPids}) ->
 	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
 	{ok, Main_HDR_Ref} = hdr_histogram:open(3600000000, 3),
