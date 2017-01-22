@@ -32,7 +32,7 @@
 	timeout = undefined :: non_neg_integer(),
 	timer = undefined :: undefined | reference(),
 	timestamp = undefined :: undefined | integer(),
-	hdr_ref = undefined :: binary()
+	hdr_ref = undefined :: undefined | binary()
 }).
 
 %% API.
