@@ -1,7 +1,7 @@
 -module(bench_worker).
 -behaviour(gen_server).
 
--include("coap_def.hrl").
+-include_lib("ecoap_common/include/coap_def.hrl").
 
 %% API.
 -export([start_link/2, close/1]).
@@ -65,7 +65,7 @@ handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId
 	% io:format("start_test at ~p~n", [erlang:monotonic_time()]),
     {ok, HDR_Ref} = hdr_histogram:open(3600000000, 3),
 	{EpID={PeerIP, PeerPortNo}, Path, Query} = resolve_uri(Uri),
-	Options = append_option({'Uri-Query', Query}, append_option({'Uri-Path', Path}, [])),
+	Options = append_option({'Uri-Query', Query}, append_option({'Uri-Path', Path}, #{})),
 	Request0 = coap_message_utils:request('CON', 'GET', <<>>, Options),
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
@@ -157,4 +157,4 @@ make_segment(Seg) ->
     list_to_binary(http_uri:decode(Seg)).
 
 append_option({Option, Value}, Options) ->
-	lists:keystore(Option, 1, Options, {Option, Value}).
+	maps:put(Option, Value, Options).
