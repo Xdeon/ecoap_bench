@@ -27,18 +27,23 @@
 	client = undefined :: undefined | pid()
 }).
 
+-include_lib("ecoap_common/include/coap_def.hrl").
+
 %% API.
 
 -spec start_link(pid()) -> {ok, pid()}.
 start_link(SupPid) ->
 	proc_lib:start_link(?MODULE, init, [SupPid]).
 
+-spec start_test(non_neg_integer(), non_neg_integer(), list()) -> ok | {error, any()}.
 start_test(N, Time, Uri) ->
 	start_test(N, Time, Uri, 'GET').
 
+-spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method()) -> ok | {error, any()}.
 start_test(N, Time, Uri, Method) ->
-	start_test(N, Time, Uri, Method, <<>>).
+	start_test(N, Time, Uri, Method, #coap_content{}).
 
+-spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method(), coap_content() | binary() | list()) -> ok | {error, any()}.
 start_test(N, Time, Uri, Method, Content) ->
 	start_workers(N),
 	go_test(Time, {Method, Uri, Content}),
@@ -46,14 +51,17 @@ start_test(N, Time, Uri, Method, Content) ->
 	receive
 		{test_result, TestTime, Result2} ->
 			erlang:demonitor(Ref, [flush]),
-			io:format("TestTime: ~ps~n~p~n",[TestTime/1000, Result2]);
+			io:format("TestTime: ~ps~n~p~n",[TestTime/1000, Result2]),
+			ok;
 		{'DOWN', Ref, process, _Pid, Reason} ->
 			{error, Reason}
 	end.
 
+-spec start_workers(non_neg_integer()) -> ok.
 start_workers(N) ->
 	gen_server:cast(?MODULE, {start_workers, N}).
 
+-spec go_test(non_neg_integer(), {coap_method(), list(), coap_content() | binary() | list()}) -> ok.
 go_test(Time, {Method, Uri, Content}) ->
 	gen_server:cast(?MODULE, {start_test, Time, {Method, Uri, Content}, self()}).
 

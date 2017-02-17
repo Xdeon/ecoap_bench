@@ -1,8 +1,6 @@
 -module(bench_worker).
 -behaviour(gen_server).
 
--include_lib("ecoap_common/include/coap_def.hrl").
-
 %% API.
 -export([start_link/2, close/1]).
 -export([start_test/3, stop_test/1]).
@@ -36,6 +34,8 @@
 	worker_ref = undefined :: undefined | reference()
 }).
 
+-include_lib("ecoap_common/include/coap_def.hrl").
+
 %% API.
 
 -spec start_link(inet:socket(), non_neg_integer()) -> {ok, pid()}.
@@ -46,9 +46,11 @@ start_link(Server, ID) ->
 close(Pid) ->
 	gen_server:cast(Pid, shutdown).
 
+-spec start_test(pid(), reference(), {coap_method(), list(), coap_content() | binary() | list()}) -> ok.
 start_test(Pid, Ref, {Method, Uri, Content}) ->
-	gen_server:cast(Pid, {start_test, Ref, {Method, Uri, Content}}).
+	gen_server:cast(Pid, {start_test, Ref, {Method, Uri, convert_content(Content)}}).
 
+-spec stop_test(pid()) -> ok.
 stop_test(Pid) ->
 	gen_server:cast(Pid, stop_test).
 
@@ -122,6 +124,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal
 
+convert_content(Content = #coap_content{}) -> Content;
+convert_content(Content) when is_binary(Content) -> #coap_content{payload=Content};
+convert_content(Content) when is_list(Content) -> #coap_content{payload=list_to_binary(Content)}.
+
 first_mid() ->
     _ = rand:seed(exs1024),
     rand:uniform(?MAX_MESSAGE_ID).
@@ -156,4 +162,3 @@ split_segments(Path, Char, Acc) ->
 
 make_segment(Seg) ->
     list_to_binary(http_uri:decode(Seg)).
-
