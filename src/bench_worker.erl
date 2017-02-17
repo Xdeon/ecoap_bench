@@ -5,7 +5,7 @@
 
 %% API.
 -export([start_link/2, close/1]).
--export([start_test/2, stop_test/1]).
+-export([start_test/3, stop_test/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -32,7 +32,8 @@
 	timeout = undefined :: non_neg_integer(),
 	timer = undefined :: undefined | reference(),
 	timestamp = undefined :: undefined | integer(),
-	hdr_ref = undefined :: undefined | binary()
+	hdr_ref = undefined :: undefined | binary(),
+	worker_ref = undefined :: undefined | reference()
 }).
 
 %% API.
@@ -45,8 +46,8 @@ start_link(Server, ID) ->
 close(Pid) ->
 	gen_server:cast(Pid, shutdown).
 
-start_test(Pid, Uri) ->
-	gen_server:cast(Pid, {start_test, Uri}).
+start_test(Pid, Ref, {Method, Uri, Content}) ->
+	gen_server:cast(Pid, {start_test, Ref, {Method, Uri, Content}}).
 
 stop_test(Pid) ->
 	gen_server:cast(Pid, stop_test).
@@ -60,22 +61,22 @@ init([Server, ID]) ->
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
-handle_cast({start_test, Uri}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
-	% io:format("worker ~p start_test~n", [ID]),
+handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
+	% io:format("worker ~p start_test~n", [_ID]),
 	% io:format("start_test at ~p~n", [erlang:monotonic_time()]),
     {ok, HDR_Ref} = hdr_histogram:open(3600000000, 3),
 	{EpID={PeerIP, PeerPortNo}, Path, Query} = resolve_uri(Uri),
-	Options = append_option({'Uri-Query', Query}, append_option({'Uri-Path', Path}, #{})),
-	Request0 = coap_message_utils:request('CON', 'GET', <<>>, Options),
+	Options = coap_message_utils:append_option('Uri-Query', Query, coap_message_utils:append_option('Uri-Path', Path, [])),
+	Request0 = coap_message_utils:request('CON', Method, Content, Options),
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{req=Request1, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), hdr_ref=HDR_Ref}};
+	{noreply, State#state{req=Request1, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), hdr_ref=HDR_Ref, worker_ref=Ref}};
 
-handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, hdr_ref=HDR_Ref}) ->
+handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, hdr_ref=HDR_Ref, worker_ref=Ref}) ->
 	% io:format("worker ~p stop_test~n", [ID]),
 	% io:format("stop_test at ~p~n", [erlang:monotonic_time()]),
-	gen_server:cast(Server, {result, self(), #{sent=>Sent, rec=>Rec, timeout=>TimeOut}, HDR_Ref}),
+	gen_server:cast(Server, {result, self(), Ref, #{sent=>Sent, rec=>Rec, timeout=>TimeOut}, HDR_Ref}),
 	{stop, normal, State};
 
 handle_cast(shutdown, State) ->
@@ -85,8 +86,8 @@ handle_cast(_Msg, State=#state{id=ID}) ->
 	io:format("unexpected cast in bench_worker ~p: ~p~n", [ID, _Msg]),
 	{noreply, State}.
 
-% incoming ACK(2) response to a request with code {ok, 'Content'}(2.05)
-handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, 5:5, MsgId:16, _/bytes>>}, 
+% incoming ACK(2) response to a request with code {ok, _}
+handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:5, MsgId:16, _/bytes>>}, 
 	State=#state{socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer, timestamp=Timestamp, hdr_ref=HDR_Ref}) ->
 	_ = erlang:cancel_timer(Timer),
 	NextMsgId = next_mid(MsgId),
@@ -95,11 +96,11 @@ handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, 5:
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
 
-% incoming ACK(2) response to a request with other response code
-handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, _Code:8, MsgId:16, _/bytes>>}, 
-	State=#state{id=ID, socket=Socket, nextmid=MsgId}) ->
-	io:format("Recv msg with unexpected response code in worker ~p~n", [ID]),
-	{stop, unexpected_code, State};
+handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class:3, DetailedCode:5, MsgId:16, _/bytes>>}, 
+	State=#state{socket=Socket, nextmid=ExpectedMsgId}) ->
+	io:format("Recv msg with type:~p id:~p code:~p, expect type:~p id:~p code:~p~n", 
+		[coap_iana:decode_type(T), MsgId, {Class, DetailedCode}, 'ACK', ExpectedMsgId, '{2,xx}']),
+	{stop, unexpected_response, State};
 
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
@@ -156,5 +157,3 @@ split_segments(Path, Char, Acc) ->
 make_segment(Seg) ->
     list_to_binary(http_uri:decode(Seg)).
 
-append_option({Option, Value}, Options) ->
-	maps:put(Option, Value, Options).

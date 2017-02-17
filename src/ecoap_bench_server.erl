@@ -2,7 +2,9 @@
 -behaviour(gen_server).
 
 %% API.
--export([start_link/1, start_workers/1, start_test/3, start_test/2]).
+-export([start_link/1]).
+-export([start_workers/1, go_test/2]).
+-export([start_test/3, start_test/4, start_test/5]).
 
 %% gen_server.
 -export([init/1]).
@@ -16,8 +18,8 @@
 	worker_sup = undefined :: pid(),
 	% start_worker_id = undefined :: non_neg_integer(),
 	worker_pids = undefined :: [pid()],
-	% worker_refs = undefined :: gb_sets:set(reference()),
 	worker_counter = undefined :: non_neg_integer(),
+	worker_refs = undefined :: gb_sets:set(reference()),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
 	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0},
@@ -31,12 +33,15 @@
 start_link(SupPid) ->
 	proc_lib:start_link(?MODULE, init, [SupPid]).
 
-start_workers(N) ->
-	gen_server:cast(?MODULE, {start_workers, N}).
-
 start_test(N, Time, Uri) ->
+	start_test(N, Time, Uri, 'GET').
+
+start_test(N, Time, Uri, Method) ->
+	start_test(N, Time, Uri, Method, <<>>).
+
+start_test(N, Time, Uri, Method, Content) ->
 	start_workers(N),
-	start_test(Time, Uri),
+	go_test(Time, {Method, Uri, Content}),
 	Ref = erlang:monitor(process, whereis(?MODULE)),
 	receive
 		{test_result, TestTime, Result2} ->
@@ -46,8 +51,11 @@ start_test(N, Time, Uri) ->
 			{error, Reason}
 	end.
 
-start_test(Time, Uri) ->
-	gen_server:cast(?MODULE, {start_test, Time, Uri, self()}).
+start_workers(N) ->
+	gen_server:cast(?MODULE, {start_workers, N}).
+
+go_test(Time, {Method, Uri, Content}) ->
+	gen_server:cast(?MODULE, {start_test, Time, {Method, Uri, Content}, self()}).
 
 %% gen_server.
 
@@ -63,7 +71,7 @@ init(SupPid) ->
 		modules => [bench_worker_sup]}),
     link(Pid),
     gen_server:enter_loop(?MODULE, [], 
-    	#state{worker_sup=Pid, worker_pids=[], worker_counter=0}, {local, ?MODULE}).
+    	#state{worker_sup=Pid, worker_pids=[], worker_counter=0, worker_refs=gb_sets:new()}, {local, ?MODULE}).
 
 % handle_call({start_workers, N}, _From, 
 % 	State=#state{start_worker_id=StartID, worker_sup=WorkerSup, worker_pids=WorkerPids, worker_refs=Refs, worker_counter=Cnt}) ->
@@ -78,31 +86,38 @@ init(SupPid) ->
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
-handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup, worker_pids=WorkerPids}) -> 
-	_ = shutdown_workers(WorkerPids),
+handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup}) -> 
 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), link(Pid), Pid end || ID <- lists:seq(1, N)],
-	% Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
 	{noreply, State#state{worker_pids=Pids, worker_counter=N}};
-handle_cast({start_test, Time, Uri, Client}, State=#state{worker_pids=WorkerPids}) ->
-	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
-	{ok, Main_HDR_Ref} = hdr_histogram:open(3600000000, 3),
-	[bench_worker:start_test(Pid, Uri) || Pid <- WorkerPids],
-	StartTime = erlang:monotonic_time(),
-	{noreply, State#state{start_time=StartTime, client=Client, hdr_ref=Main_HDR_Ref}, Time*1000};
 
-handle_cast({result, _Pid, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, HDR_Ref}, 
-	State=#state{result=Result=#{sent:=ASent, rec:=ARec, timeout:=ATimeOut}, worker_counter=Cnt, hdr_ref=Main_HDR_Ref}) ->
-	% io:format("worker result: ~p~n", [_R]),
-	NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
-	_ = hdr_histogram:add(Main_HDR_Ref, HDR_Ref),
-	ok = hdr_histogram:close(HDR_Ref),
-	case Cnt - 1 of
-		0 -> 
-			gen_server:cast(self(), test_complete);
-		_Else when _Else > 0 ->
-			ok
-	end,
-	{noreply, State#state{result=NewResult, worker_counter=Cnt-1}};
+handle_cast({start_test, Time, {Method, Uri, Content}, Client}, State=#state{worker_pids=WorkerPids}) ->
+	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
+	{ok, Main_HDR_Ref} = open_hdrgram(),
+	WorkerRefs = lists:foldl(fun(Pid, Acc) -> 
+									Ref = make_ref(), 
+									bench_worker:start_test(Pid, Ref, {Method, Uri, Content}), 
+									gb_sets:add(Ref, Acc) end, gb_sets:new(), WorkerPids),
+	StartTime = erlang:monotonic_time(),
+	{noreply, State#state{start_time=StartTime, client=Client, hdr_ref=Main_HDR_Ref, worker_refs=WorkerRefs}, Time*1000};
+
+handle_cast({result, _Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, HDR_Ref}, 
+	State=#state{result=Result, worker_counter=Cnt, worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
+	case gb_sets:is_member(Ref, WorkerRefs) of
+		true ->
+			#{sent:=ASent, rec:=ARec, timeout:=ATimeOut} = Result,
+			NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
+			_ = hdr_histogram:add(Main_HDR_Ref, HDR_Ref),
+			ok = hdr_histogram:close(HDR_Ref),
+			case Cnt - 1 of
+				0 -> 
+					gen_server:cast(self(), test_complete);
+				_Else when _Else > 0 ->
+					ok
+			end,
+			{noreply, State#state{result=NewResult, worker_counter=Cnt-1, worker_refs=gb_sets:delete(Ref, WorkerRefs)}};
+		false ->
+			{noreply, State}
+	end;
 
 handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=WorkerPids, client=Client, hdr_ref=Main_HDR_Ref}) ->
 	#{rec:=Rec} = Result,
@@ -147,22 +162,10 @@ code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
 
 %% Internal
-% handle_down_worker(Ref, Pid, Reason, State=#state{worker_pids=WorkerPids, worker_refs=Refs}) ->
-% 	case gb_sets:is_member(Ref, Refs) of
-% 		true -> 
-% 			case Reason of
-% 				normal -> 
-% 					% NewWorkerPids = lists:delete(Pid, WorkerPids),
-% 					% NewWorkerRefs = gb_sets:delete(Ref, Refs),
-% 					% {noreply, State#state{worker_pids=NewWorkerPids, worker_refs=NewWorkerRefs}};
-% 					{noreply, State};
-% 				Else ->
-% 					error_logger:error_msg("Worker ~p carshed with reason ~p~n", [Pid, Else]),
-% 					{stop, normal, State}
-% 			end;
-% 		false ->
-% 			{noreply, State}
-% 	end.
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
+
+open_hdrgram() ->
+	hdr_histogram:open(3600000000, 3).
+	
