@@ -51,7 +51,8 @@ start_test(N, Time, Uri, Method, Content) ->
 	receive
 		{test_result, TestTime, Result2} ->
 			erlang:demonitor(Ref, [flush]),
-			io:format("TestTime: ~ps~n~p~n",[TestTime/1000, Result2]),
+			io:fwrite("Test complete~n"),
+			io:fwrite("TestTime: ~ps~n~p~n",[TestTime/1000, Result2]),
 			ok;
 		{'DOWN', Ref, process, _Pid, Reason} ->
 			{error, Reason}
@@ -81,16 +82,6 @@ init(SupPid) ->
     gen_server:enter_loop(?MODULE, [], 
     	#state{worker_sup=Pid, worker_pids=[], worker_counter=0, worker_refs=gb_sets:new()}, {local, ?MODULE}).
 
-% handle_call({start_workers, N}, _From, 
-% 	State=#state{start_worker_id=StartID, worker_sup=WorkerSup, worker_pids=WorkerPids, worker_refs=Refs, worker_counter=Cnt}) ->
-% 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), Pid end || ID <- lists:seq(StartID, StartID+N-1)],
-% 	Refs2 = lists:foldl(fun(Pid, Acc) -> Ref = erlang:monitor(process, Pid), gb_sets:add(Ref, Acc) end, Refs, Pids),
-% 	{reply, ok, State#state{start_worker_id=StartID+N, worker_pids=lists:append(WorkerPids, Pids), worker_refs=Refs2, worker_counter=Cnt+N}};
-
-% handle_call(shutdown_workers, _From, State=#state{worker_pids=WorkerPids}) ->
-% 	[bench_worker:close(Pid) || Pid <- WorkerPids],
-% 	{reply, ok, State#state{worker_pids=[]}};
-
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
@@ -99,8 +90,8 @@ handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup}) ->
 	{noreply, State#state{worker_pids=Pids, worker_counter=N}};
 
 handle_cast({start_test, Time, {Method, Uri, Content}, Client}, State=#state{worker_pids=WorkerPids}) ->
-	io:format("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
-	{ok, Main_HDR_Ref} = open_hdrgram(),
+	io:fwrite("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
+	{ok, Main_HDR_Ref} = hdr_histogram:open(3600000000, 3),
 	WorkerRefs = lists:foldl(fun(Pid, Acc) -> 
 									Ref = make_ref(), 
 									bench_worker:start_test(Pid, Ref, {Method, Uri, Content}), 
@@ -127,27 +118,23 @@ handle_cast({result, _Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut},
 			{noreply, State}
 	end;
 
-handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, worker_pids=WorkerPids, client=Client, hdr_ref=Main_HDR_Ref}) ->
+handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, client=Client, hdr_ref=Main_HDR_Ref}) ->
 	#{rec:=Rec} = Result,
 	Result2 = Result#{throughput:=Rec/TestTime*1000},
-	io:format("test_complete~n"),
-	io:format("Min ~pms~n", [hdr_histogram:min(Main_HDR_Ref)/1000]),
-    io:format("Max ~pms~n", [hdr_histogram:max(Main_HDR_Ref)/1000]),
-    io:format("Mean ~.3fms~n", [hdr_histogram:mean(Main_HDR_Ref)/1000]),
-    io:format("Median ~.3fms~n", [hdr_histogram:median(Main_HDR_Ref)/1000]),
-    io:format("Stddev ~.3fms~n", [hdr_histogram:stddev(Main_HDR_Ref)/1000]),
-    io:format("95ile ~.3fms~n", [hdr_histogram:percentile(Main_HDR_Ref,95.0)/1000]),
-    io:format("Memory Size ~p~n", [hdr_histogram:get_memory_size(Main_HDR_Ref)]),
-    io:format("Total Count ~p~n", [hdr_histogram:get_total_count(Main_HDR_Ref)]),
-	% io:format("TestTime: ~ps~n", [TestTime/1000]),
-	% io:format("~p~n", [Result2]),
-	_ = shutdown_workers(WorkerPids),
+	io:fwrite("Min ~pms~n", [hdr_histogram:min(Main_HDR_Ref)/1000]),
+    io:fwrite("Max ~pms~n", [hdr_histogram:max(Main_HDR_Ref)/1000]),
+    io:fwrite("Mean ~.3fms~n", [hdr_histogram:mean(Main_HDR_Ref)/1000]),
+    io:fwrite("Median ~.3fms~n", [hdr_histogram:median(Main_HDR_Ref)/1000]),
+    io:fwrite("Stddev ~.3fms~n", [hdr_histogram:stddev(Main_HDR_Ref)/1000]),
+    io:fwrite("95ile ~.3fms~n", [hdr_histogram:percentile(Main_HDR_Ref,95.0)/1000]),
+    io:fwrite("Memory Size ~p~n", [hdr_histogram:get_memory_size(Main_HDR_Ref)]),
+    io:fwrite("Total Count ~p~n", [hdr_histogram:get_total_count(Main_HDR_Ref)]),
 	ok = hdr_histogram:close(Main_HDR_Ref),
 	Client ! {test_result, TestTime, Result2},
-	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_pids=[]}};
+	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_pids=[], start_time=undefined, test_time=undefined}};
 
 handle_cast(_Msg, State) ->
-	io:format("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
+	io:fwrite("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
 	{noreply, State}.
 
 handle_info(timeout, State=#state{worker_pids=WorkerPids, start_time=StartTime}) ->
@@ -159,7 +146,7 @@ handle_info(timeout, State=#state{worker_pids=WorkerPids, start_time=StartTime})
 % 	handle_down_worker(Ref, Pid, Reason, State);
 
 handle_info(_Info, State) ->
-	io:format("unexpected info in ecoap_bench_server: ~p~n", [_Info]),
+	io:fwrite("unexpected info in ecoap_bench_server: ~p~n", [_Info]),
 	{noreply, State}.
 
 terminate(_Reason, _State=#state{worker_pids=WorkerPids}) ->
@@ -173,7 +160,4 @@ code_change(_OldVsn, State, _Extra) ->
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
-
-open_hdrgram() ->
-	hdr_histogram:open(3600000000, 3).
 	
