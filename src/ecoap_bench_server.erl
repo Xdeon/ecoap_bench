@@ -22,7 +22,7 @@
 	worker_refs = undefined :: gb_sets:set(reference()),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
-	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0},
+	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0, min=>0, max=>0, mean=>0, median=>0, stddev=> 0, ptile95=>0} :: map(),
 	hdr_ref = undefined :: undefined | binary(),
 	client = undefined :: undefined | pid()
 }).
@@ -51,9 +51,8 @@ start_test(N, Time, Uri, Method, Content) ->
 	receive
 		{test_result, TestTime, Result2} ->
 			erlang:demonitor(Ref, [flush]),
-			io:fwrite("Test complete~n"),
-			io:fwrite("TestTime: ~ps~n~p~n",[TestTime/1000, Result2]),
-			ok;
+			io:fwrite("Test complete~nTest Time: ~p~n", [TestTime/1000]),
+			Result2;
 		{'DOWN', Ref, process, _Pid, Reason} ->
 			{error, Reason}
 	end.
@@ -80,7 +79,7 @@ init(SupPid) ->
 		modules => [bench_worker_sup]}),
     link(Pid),
     gen_server:enter_loop(?MODULE, [], 
-    	#state{worker_sup=Pid, worker_pids=[], worker_counter=0, worker_refs=gb_sets:new()}, {local, ?MODULE}).
+    	#state{worker_sup=Pid, worker_pids=[], worker_counter=0, worker_refs=gb_sets:new(), result=new_result()}, {local, ?MODULE}).
 
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
@@ -120,18 +119,24 @@ handle_cast({result, _Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut},
 
 handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, client=Client, hdr_ref=Main_HDR_Ref}) ->
 	#{rec:=Rec} = Result,
-	Result2 = Result#{throughput:=Rec/TestTime*1000},
-	io:fwrite("Min ~pms~n", [hdr_histogram:min(Main_HDR_Ref)/1000]),
-    io:fwrite("Max ~pms~n", [hdr_histogram:max(Main_HDR_Ref)/1000]),
-    io:fwrite("Mean ~.3fms~n", [hdr_histogram:mean(Main_HDR_Ref)/1000]),
-    io:fwrite("Median ~.3fms~n", [hdr_histogram:median(Main_HDR_Ref)/1000]),
-    io:fwrite("Stddev ~.3fms~n", [hdr_histogram:stddev(Main_HDR_Ref)/1000]),
-    io:fwrite("95ile ~.3fms~n", [hdr_histogram:percentile(Main_HDR_Ref,95.0)/1000]),
-    io:fwrite("Memory Size ~p~n", [hdr_histogram:get_memory_size(Main_HDR_Ref)]),
-    io:fwrite("Total Count ~p~n", [hdr_histogram:get_total_count(Main_HDR_Ref)]),
+ 	Min = hdr_histogram:min(Main_HDR_Ref)/1000, 
+ 	Max = hdr_histogram:max(Main_HDR_Ref)/1000,
+ 	Mean = hdr_histogram:mean(Main_HDR_Ref)/1000,
+ 	Median = hdr_histogram:median(Main_HDR_Ref)/1000,
+ 	Stddev = hdr_histogram:stddev(Main_HDR_Ref)/1000,
+ 	Ptile95 = hdr_histogram:percentile(Main_HDR_Ref, 95.0)/1000,
+	% io:fwrite("Min ~pms~n", [hdr_histogram:min(Main_HDR_Ref)/1000]),
+ %    io:fwrite("Max ~pms~n", [hdr_histogram:max(Main_HDR_Ref)/1000]),
+ %    io:fwrite("Mean ~.3fms~n", [hdr_histogram:mean(Main_HDR_Ref)/1000]),
+ %    io:fwrite("Median ~.3fms~n", [hdr_histogram:median(Main_HDR_Ref)/1000]),
+ %    io:fwrite("Stddev ~.3fms~n", [hdr_histogram:stddev(Main_HDR_Ref)/1000]),
+ %    io:fwrite("95ile ~.3fms~n", [hdr_histogram:percentile(Main_HDR_Ref,95.0)/1000]),
+ %    io:fwrite("Memory Size ~p~n", [hdr_histogram:get_memory_size(Main_HDR_Ref)]),
+ %    io:fwrite("Total Count ~p~n", [hdr_histogram:get_total_count(Main_HDR_Ref)]),
 	ok = hdr_histogram:close(Main_HDR_Ref),
-	Client ! {test_result, TestTime, Result2},
-	{noreply, State#state{result=Result#{sent:=0, rec:=0, timeout:=0, throughput:=0}, worker_pids=[], start_time=undefined, test_time=undefined}};
+	Client ! {test_result, TestTime, 
+		Result#{throughput:=Rec/TestTime*1000, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95}},
+	{noreply, State#state{result=new_result(), worker_pids=[], start_time=undefined, test_time=undefined}};
 
 handle_cast(_Msg, State) ->
 	io:fwrite("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
@@ -157,6 +162,8 @@ code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
 
 %% Internal
+
+new_result() -> #{sent=>0, rec=>0, timeout=>0, throughput=>0, min=>0, max=>0, mean=>0, median=>0, stddev=> 0, ptile95=>0}.
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
