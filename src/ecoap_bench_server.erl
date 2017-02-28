@@ -43,7 +43,7 @@ start_test(N, Time, Uri) ->
 start_test(N, Time, Uri, Method) ->
 	start_test(N, Time, Uri, Method, #coap_content{}).
 
--spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method(), coap_content() | binary() | list()) -> ok | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method(), coap_content() | binary() | list()) -> map() | {error, any()}.
 start_test(N, Time, Uri, Method, Content) ->
 	start_workers(N),
 	go_test(Time, {Method, Uri, Content}),
@@ -163,7 +163,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal
 
-new_result() -> #{sent=>0, rec=>0, timeout=>0, throughput=>0, min=>0, max=>0, mean=>0, median=>0, stddev=> 0, ptile95=>0}.
+new_result() -> #{sent=>0, rec=>0, timeout=>0, throughput=>0, min=>0.0, max=>0.0, mean=>0.0, median=>0.0, stddev=> 0.0, ptile95=>0.0}.
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
