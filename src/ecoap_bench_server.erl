@@ -163,7 +163,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal
 
-new_result() -> #{sent=>0, rec=>0, timeout=>0, throughput=>0, min=>0.0, max=>0.0, mean=>0.0, median=>0.0, stddev=> 0.0, ptile95=>0.0}.
+new_result() -> #{sent=>0, rec=>0, timeout=>0, throughput=>0.0, min=>0.0, max=>0.0, mean=>0.0, median=>0.0, stddev=> 0.0, ptile95=>0.0}.
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
