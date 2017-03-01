@@ -49,9 +49,9 @@ start_test(N, Time, Uri, Method, Content) ->
 	go_test(Time, {Method, Uri, Content}),
 	Ref = erlang:monitor(process, whereis(?MODULE)),
 	receive
-		{test_result, TestTime, Result2} ->
+		{test_result, _TestTime, Result2} ->
 			erlang:demonitor(Ref, [flush]),
-			io:fwrite("Test complete~nTest Time: ~p~n", [TestTime/1000]),
+			% io:fwrite("Test complete~nTest Time: ~p~n", [TestTime/1000]),
 			Result2;
 		{'DOWN', Ref, process, _Pid, Reason} ->
 			{error, Reason}
@@ -89,7 +89,7 @@ handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup}) ->
 	{noreply, State#state{worker_pids=Pids, worker_counter=N}};
 
 handle_cast({start_test, Time, {Method, Uri, Content}, Client}, State=#state{worker_pids=WorkerPids}) ->
-	io:fwrite("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
+	% io:fwrite("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
 	{ok, Main_HDR_Ref} = hdr_histogram:open(3600000000, 3),
 	WorkerRefs = lists:foldl(fun(Pid, Acc) -> 
 									Ref = make_ref(), 
