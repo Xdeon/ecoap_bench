@@ -5,6 +5,7 @@
 -define(TEST_PERIOD, 60).
 
 start_test(Uri) ->
+	_ = os:cmd("ulimit -n 65535"),
 	_ = application:stop(ecoap_bench),
 	{ok, _} = application:ensure_all_started(ecoap_bench),
 	_ = ecoap_bench_server:start_test(1000, ?TEST_PERIOD, Uri),
