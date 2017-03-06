@@ -41,9 +41,9 @@ start_test(N, Time, Uri) ->
 
 -spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method()) -> ok | {error, any()}.
 start_test(N, Time, Uri, Method) ->
-	start_test(N, Time, Uri, Method, #coap_content{}).
+	start_test(N, Time, Uri, Method, <<>>).
 
--spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method(), coap_content() | binary() | list()) -> map() | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method(), binary()) -> map() | {error, any()}.
 start_test(N, Time, Uri, Method, Content) ->
 	start_workers(N),
 	go_test(Time, {Method, Uri, Content}),
