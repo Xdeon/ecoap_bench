@@ -66,8 +66,8 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
 	{EpID={PeerIP, PeerPortNo}, Path, Query} = resolve_uri(Uri),
-	Options = coap_message_utils:append_option('Uri-Query', Query, coap_message_utils:append_option('Uri-Path', Path, [])),
-	Request0 = coap_message_utils:request('CON', Method, Content, Options),
+	Options = coap_utils:append_option('Uri-Query', Query, coap_utils:append_option('Uri-Path', Path, [])),
+	Request0 = coap_utils:request('CON', Method, Content, Options),
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
