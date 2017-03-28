@@ -65,7 +65,7 @@ handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
 handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
-	{EpID={PeerIP, PeerPortNo}, Path, Query} = resolve_uri(Uri),
+	{_Scheme, EpID={PeerIP, PeerPortNo}, Path, Query} = coap_utils:decode_uri(Uri),
 	Options = coap_utils:add_option('Uri-Query', Query, coap_utils:add_option('Uri-Path', Path, [])),
 	Request0 = coap_utils:request('CON', Method, Content, Options),
 	Request1 = Request0#coap_message{id=MsgId},
@@ -132,27 +132,3 @@ next_mid(MsgId) ->
         true -> 1 % or 0?
     end.
 
-resolve_uri(Uri) ->
-    {ok, {_Scheme, _UserInfo, Host, PortNo, Path, Query}} =
-        http_uri:parse(Uri, [{scheme_defaults, [{coap, 5683}]}]),
-    {ok, PeerIP} = inet:getaddr(Host, inet),
-    {{PeerIP, PortNo}, split_path(Path), split_query(Query)}.
-
-split_path([]) -> [];
-split_path([$/]) -> [];
-split_path([$/ | Path]) -> split_segments(Path, $/, []).
-
-split_query([]) -> [];
-split_query([$? | Path]) -> split_segments(Path, $&, []).
-
-split_segments(Path, Char, Acc) ->
-    case string:rchr(Path, Char) of
-        0 ->
-            [make_segment(Path) | Acc];
-        N when N > 0 ->
-            split_segments(string:substr(Path, 1, N-1), Char,
-                [make_segment(string:substr(Path, N+1)) | Acc])
-    end.
-
-make_segment(Seg) ->
-    list_to_binary(http_uri:decode(Seg)).
