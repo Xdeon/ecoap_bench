@@ -98,21 +98,24 @@ handle_cast({start_test, Time, {Method, Uri, Content}, Client}, State=#state{wor
 	StartTime = erlang:monotonic_time(),
 	{noreply, State#state{start_time=StartTime, client=Client, hdr_ref=Main_HDR_Ref, worker_refs=WorkerRefs}, Time*1000};
 
-handle_cast({result, _Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, HDR_Ref}, 
+handle_cast({result, Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, HDR_Ref}, 
 	State=#state{result=Result, worker_counter=Cnt, worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
 	case gb_sets:is_member(Ref, WorkerRefs) of
 		true ->
 			#{sent:=ASent, rec:=ARec, timeout:=ATimeOut} = Result,
 			NewResult = Result#{sent:=ASent+WSent, rec:=ARec+WRec, timeout:=ATimeOut+WTimeOut},
+			% add response time metrics to the main histogram
 			_ = hdr_histogram:add(Main_HDR_Ref, HDR_Ref),
-			ok = hdr_histogram:close(HDR_Ref),
-			case Cnt - 1 of
+			% let the worker clean up and shutdown
+			bench_worker:close(Pid),
+			NewCnt = Cnt - 1,
+			case NewCnt of
 				0 -> 
 					gen_server:cast(self(), test_complete);
-				_Else when _Else > 0 ->
+				Else when Else > 0 ->
 					ok
 			end,
-			{noreply, State#state{result=NewResult, worker_counter=Cnt-1, worker_refs=gb_sets:delete(Ref, WorkerRefs)}};
+			{noreply, State#state{result=NewResult, worker_counter=NewCnt, worker_refs=gb_sets:delete(Ref, WorkerRefs)}};
 		false ->
 			{noreply, State}
 	end;
@@ -137,6 +140,16 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, clien
 	Client ! {test_result, TestTime, 
 		Result#{throughput:=Rec/TestTime*1000, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95}},
 	{noreply, State#state{result=new_result(), worker_pids=[], start_time=undefined, test_time=undefined}};
+
+handle_cast({unexpected_response, _Pid, Ref}, State=#state{worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
+	case gb_sets:is_member(Ref, WorkerRefs) of
+		true -> 
+			ok = hdr_histogram:close(Main_HDR_Ref),
+			io:fwrite("Test failed because of unexpected response~n"),
+			{stop, shutdown, State};
+		false ->
+			{noreply, State}
+	end;
 
 handle_cast(_Msg, State) ->
 	io:fwrite("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
