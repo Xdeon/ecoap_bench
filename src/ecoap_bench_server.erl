@@ -22,10 +22,23 @@
 	worker_refs = undefined :: gb_sets:set(reference()),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
-	result = #{sent=>0, rec=>0, timeout=>0, throughput=>0, min=>0, max=>0, mean=>0, median=>0, stddev=> 0, ptile95=>0} :: map(),
+	result = undefined :: test_result(),
 	hdr_ref = undefined :: undefined | binary(),
 	client = undefined :: undefined | pid()
 }).
+
+-type test_result() :: #{
+							sent := non_neg_integer(),
+							rec := non_neg_integer(),
+							timeout := non_neg_integer(),
+							throughput := float(),
+							min := float(),
+							max := float(),
+							mean := float(),
+							median := float(),
+							stddev := float(),
+							ptile95 := float()
+						}.
 
 -include_lib("ecoap_common/include/coap_def.hrl").
 
@@ -35,15 +48,15 @@
 start_link(SupPid) ->
 	proc_lib:start_link(?MODULE, init, [SupPid]).
 
--spec start_test(non_neg_integer(), non_neg_integer(), list()) -> ok | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string()) -> ok | {error, any()}.
 start_test(N, Time, Uri) ->
 	start_test(N, Time, Uri, 'GET').
 
--spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method()) -> ok | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_method()) -> ok | {error, any()}.
 start_test(N, Time, Uri, Method) ->
-	start_test(N, Time, Uri, Method, <<>>).
+	start_test(N, Time, Uri, Method, #coap_content{}).
 
--spec start_test(non_neg_integer(), non_neg_integer(), list(), coap_method(), binary()) -> map() | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_method(), coap_content() | binary()) -> test_result() | {error, any()}.
 start_test(N, Time, Uri, Method, Content) ->
 	start_workers(N),
 	go_test(Time, {Method, Uri, Content}),

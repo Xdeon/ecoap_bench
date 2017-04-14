@@ -46,9 +46,9 @@ start_link(Server, ID) ->
 close(Pid) ->
 	gen_server:cast(Pid, shutdown).
 
--spec start_test(pid(), reference(), {coap_method(), list(), binary()}) -> ok.
+-spec start_test(pid(), reference(), {coap_method(), list(), coap_content() | binary()}) -> ok.
 start_test(Pid, Ref, {Method, Uri, Content}) ->
-	gen_server:cast(Pid, {start_test, Ref, {Method, Uri, #coap_content{payload=Content}}}).
+	gen_server:cast(Pid, {start_test, Ref, {Method, Uri, convert_content(Content)}}).
 
 -spec stop_test(pid()) -> ok.
 stop_test(Pid) ->
@@ -123,6 +123,9 @@ code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
 
 %% Internal
+
+convert_content(Content=#coap_content{}) -> Content;
+convert_content(Content) when is_binary(Content) -> #coap_content{payload=Content}.
 
 first_mid() ->
     _ = rand:seed(exs1024),
