@@ -28,6 +28,7 @@
 }).
 
 -type test_result() :: #{
+							time := float(),
 							sent := non_neg_integer(),
 							rec := non_neg_integer(),
 							timeout := non_neg_integer(),
@@ -151,7 +152,7 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, clien
  %    io:fwrite("Total Count ~p~n", [hdr_histogram:get_total_count(Main_HDR_Ref)]),
 	ok = hdr_histogram:close(Main_HDR_Ref),
 	Client ! {test_result, TestTime, 
-		Result#{throughput:=Rec/TestTime*1000, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95}},
+		Result#{time:=TestTime/1000, throughput:=Rec/TestTime*1000, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95}},
 	{noreply, State#state{result=new_result(), worker_pids=[], start_time=undefined, test_time=undefined}};
 
 handle_cast({unexpected_response, _Pid, Ref}, State=#state{worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
@@ -189,7 +190,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal
 
-new_result() -> #{sent=>0, rec=>0, timeout=>0, throughput=>0.0, min=>0.0, max=>0.0, mean=>0.0, median=>0.0, stddev=> 0.0, ptile95=>0.0}.
+new_result() -> #{time=>0.0, sent=>0, rec=>0, timeout=>0, throughput=>0.0, min=>0.0, max=>0.0, mean=>0.0, median=>0.0, stddev=> 0.0, ptile95=>0.0}.
 
 shutdown_workers(WorkerPids) ->
 	[bench_worker:close(Pid) || Pid <- WorkerPids].
