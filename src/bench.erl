@@ -10,7 +10,7 @@ start_test(Uri) ->
 	_ = os:cmd("ulimit -n 10240"),
 	{ok, _} = application:ensure_all_started(ecoap_bench),
 	TestSequence = generate_test_sequence(),
-	% warmup_test(1000, ?TEST_PERIOD, Uri),
+	warmup_test(1000, ?TEST_PERIOD, Uri),
 	[test_func(N, ?TEST_PERIOD, Uri) || N <- TestSequence],
 	ok = application:stop(ecoap_bench).
 
@@ -24,10 +24,10 @@ generate_test_sequence() ->
 	lists:seq(10, 90, 10) ++ lists:seq(100, 200, 25) ++ lists:seq(300, 900, 100) ++ lists:seq(1000, 5000, 500) ++ lists:seq(6000, 10000, 1000).
 
 % warm the server up and abandon the test result
-% warmup_test(N, Time, Uri) ->
-% 	_ = ecoap_bench_server:start_test(N, Time, Uri),
-% 	timer:sleep(?INTERVAL),
-% 	ok.
+warmup_test(N, Time, Uri) ->
+	_ = ecoap_bench_server:start_test(N, Time, Uri),
+	timer:sleep(?INTERVAL),
+	ok.
 
 % used when repeating of the same test (test with same setup) is needed
 % repeated_test_func(N, Time, Uri, Cycle) ->
