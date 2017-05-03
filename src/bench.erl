@@ -19,6 +19,7 @@ start_test(Uri) ->
 % 10..90, 100..900, 1000..10000 with exponential step
 
 % UPDATE: revise the sequence according to Californium offical test setting
+% one run takes (60+15) + (9+5+7+9+5)*(60+15) = 2700sec = 45min
 generate_test_sequence() ->
 	% lists:seq(10, 90, 10) ++ lists:seq(100, 900, 100) ++ lists:seq(1000, 10000, 1000).
 	lists:seq(10, 90, 10) ++ lists:seq(100, 200, 25) ++ lists:seq(300, 900, 100) ++ lists:seq(1000, 5000, 500) ++ lists:seq(6000, 10000, 1000).
