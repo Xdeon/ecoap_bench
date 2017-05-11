@@ -68,7 +68,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
 	{_Scheme, EpID={PeerIP, PeerPortNo}, Path, Query} = coap_utils:decode_uri(Uri),
-	Options = coap_utils:add_option('Uri-Query', Query, coap_utils:add_option('Uri-Path', Path, #{})),
+	Options = coap_utils:add_option('Uri-Query', Query, coap_utils:add_option('Uri-Path', Path, [])),
 	Request0 = coap_utils:request('CON', Method, Content, Options),
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
