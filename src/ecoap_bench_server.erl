@@ -169,8 +169,8 @@ handle_cast(_Msg, State) ->
 	{noreply, State}.
 
 handle_info(timeout, State=#state{worker_pids=WorkerPids, start_time=StartTime}) ->
-	[bench_worker:stop_test(Pid) || Pid <- WorkerPids],
 	TestTime = erlang:convert_time_unit(erlang:monotonic_time() - StartTime, native, milli_seconds),
+	[bench_worker:stop_test(Pid) || Pid <- WorkerPids],
 	{noreply, State#state{test_time=TestTime}};
 
 % handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
