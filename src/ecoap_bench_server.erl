@@ -105,12 +105,11 @@ handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup}) ->
 handle_cast({start_test, Time, {Method, Uri, Content}, Client}, State=#state{worker_pids=WorkerPids}) ->
 	% io:fwrite("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
 	{ok, Main_HDR_Ref} = hdr_histogram:open(3600000000, 3),
-	WorkerRefs = lists:foldl(fun(Pid, Acc) -> 
-									Ref = make_ref(), 
-									bench_worker:start_test(Pid, Ref, {Method, Uri, Content}), 
-									gb_sets:add(Ref, Acc) end, gb_sets:new(), WorkerPids),
+	WorkerRefs0 = [begin Ref = make_ref(), bench_worker:start_test(Pid, Ref, {Method, Uri, Content}), Ref end || Pid <- WorkerPids],
 	StartTime = erlang:monotonic_time(),
-	{noreply, State#state{start_time=StartTime, client=Client, hdr_ref=Main_HDR_Ref, worker_refs=WorkerRefs}, Time*1000};
+	_ = erlang:send_after(Time*1000, self(), timeout),
+	WorkerRefs = gb_sets:from_list(WorkerRefs0),
+	{noreply, State#state{start_time=StartTime, client=Client, hdr_ref=Main_HDR_Ref, worker_refs=WorkerRefs}};
 
 handle_cast({result, Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, HDR_Ref}, 
 	State=#state{result=Result, worker_counter=Cnt, worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
