@@ -2,7 +2,7 @@
 -export([start_test/1]).
 -export([generate_test_sequence/0]).
 
--define(INTERVAL, 15000).
+-define(INTERVAL, 20000).
 % -define(TEST_CYCLE, 10).
 -define(TEST_PERIOD, 60).
 
