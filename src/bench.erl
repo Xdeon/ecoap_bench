@@ -11,7 +11,7 @@ start_test(Uri) ->
 	{ok, _} = application:ensure_all_started(ecoap_bench),
 	TestSequence = generate_test_sequence(),
 	warmup_test(1000, ?TEST_PERIOD, Uri),
-	[test_func(N, ?TEST_PERIOD, Uri) || N <- TestSequence],
+	ok = run_test(Uri, TestSequence),
 	ok = application:stop(ecoap_bench).
 
 % generate test sequence, a.k.a. number of concurrent clients
@@ -34,6 +34,11 @@ warmup_test(N, Time, Uri) ->
 % repeated_test_func(N, Time, Uri, Cycle) ->
 % 	[test_func(N, Time, Uri) || _ <- lists:seq(1, Cycle)],
 % 	ok.
+
+run_test(_Uri, []) -> ok;
+run_test(Uri, [H|T]) ->
+	test_func(H, ?TEST_PERIOD, Uri),
+	run_test(Uri, T).
 
 % execute the test, format the result and print
 test_func(N, Time, Uri) ->
