@@ -99,11 +99,18 @@ handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:
 
 handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class:3, DetailedCode:5, MsgId:16, _/bytes>>}, 
 	State=#state{enable=true, socket=Socket, nextmid=ExpectedMsgId, server=Server, worker_ref=Ref}) ->
-	io:fwrite("Recv msg with type:~p id:~p code:~p, expect type:~p id:~p code:~p~n", 
-		[coap_iana:decode_type(T), MsgId, {Class, DetailedCode}, 'ACK', ExpectedMsgId, '{2,xx}']),
-	gen_server:cast(Server, {unexpected_response, self(), Ref}),
-	{stop, normal, State};
-
+	case Class of
+		2 -> 
+			% successful response but time out
+			io:fwrite("Recv msg with wrong MID, expected ~p but received ~p~n", [ExpectedMsgId, MsgId]),
+			{noreply, State};
+		_Else ->
+			% error response 
+			io:fwrite("Recv wrong msg, expect type:~p id:~p code:~p but recevied type:~p id:~p code:~p~n", 
+			['ACK', ExpectedMsgId, '{2,xx}', coap_iana:decode_type(T), MsgId, {Class, DetailedCode}]),
+			gen_server:cast(Server, {unexpected_response, self(), Ref}),
+			{stop, normal, State}
+	end;
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{enable=true, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
 	NextMsgId = next_mid(MsgId),
