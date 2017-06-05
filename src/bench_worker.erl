@@ -98,19 +98,11 @@ handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:
 	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
 
 handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class:3, DetailedCode:5, MsgId:16, _/bytes>>}, 
-	State=#state{enable=true, socket=Socket, nextmid=ExpectedMsgId, server=Server, worker_ref=Ref}) ->
-	case Class of
-		2 -> 
-			% successful response but time out
-			io:fwrite("Recv msg with wrong MID, expected ~p but received ~p~n", [ExpectedMsgId, MsgId]),
-			{noreply, State};
-		_Else ->
-			% error response 
-			io:fwrite("Recv wrong msg, expect type:~p id:~p code:~p but recevied type:~p id:~p code:~p~n", 
-			['ACK', ExpectedMsgId, '{2,xx}', coap_iana:decode_type(T), MsgId, {Class, DetailedCode}]),
-			gen_server:cast(Server, {unexpected_response, self(), Ref}),
-			{stop, normal, State}
-	end;
+	State=#state{enable=true, socket=Socket, nextmid=ExpectedMsgId}) ->
+	% unexpected response, e.g. late response or unknown response code
+	io:fwrite("Recv wrong msg, expect type:~p id:~p code:~p but recevied type:~p id:~p code:~p~n", 
+	['ACK', ExpectedMsgId, '{2,xx}', coap_iana:decode_type(T), MsgId, {Class, DetailedCode}]),
+	{stop, normal, State};
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{enable=true, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
 	NextMsgId = next_mid(MsgId),
