@@ -102,7 +102,7 @@ handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class
 	% unexpected response, e.g. late response or unknown response code
 	io:fwrite("Recv wrong msg, expect type:~p id:~p code:~p but recevied type:~p id:~p code:~p~n", 
 	['ACK', ExpectedMsgId, '{2,xx}', coap_iana:decode_type(T), MsgId, {Class, DetailedCode}]),
-	{stop, normal, State};
+	{noreply, State};
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{enable=true, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
 	NextMsgId = next_mid(MsgId),
