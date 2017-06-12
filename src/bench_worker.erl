@@ -67,7 +67,7 @@ handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
 handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
-	{_Scheme, EpID={PeerIP, PeerPortNo}, Path, Query} = coap_utils:decode_uri(Uri),
+	{_Scheme, _Host, EpID={PeerIP, PeerPortNo}, Path, Query} = coap_utils:decode_uri(Uri),
 	Options = coap_utils:add_option('Uri-Query', Query, coap_utils:add_option('Uri-Path', Path, [])),
 	Request0 = coap_utils:request('CON', Method, Content, Options),
 	Request1 = Request0#coap_message{id=MsgId},
@@ -90,7 +90,7 @@ handle_cast(_Msg, State=#state{id=ID}) ->
 % incoming ACK(2) response to a request with code {ok, _}
 handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:5, MsgId:16, _/bytes>>}, 
 	State=#state{enable=true, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer, timestamp=Timestamp, hdr_ref=HDR_Ref}) ->
-	_ = erlang:cancel_timer(Timer),
+	_ = erlang:cancel_timer(Timer, [{async, true}, {info, false}]),
 	NextMsgId = next_mid(MsgId),
 	ok = hdr_histogram:record(HDR_Ref, erlang:convert_time_unit(erlang:monotonic_time() - Timestamp, native, micro_seconds)),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
