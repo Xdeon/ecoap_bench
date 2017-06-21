@@ -7,7 +7,7 @@
 -define(TEST_PERIOD, 60).
 
 start_test(Uri) ->
-	_ = os:cmd("ulimit -n 10240"),
+	% _ = os:cmd("ulimit -n 10240"),
 	{ok, _} = application:ensure_all_started(ecoap_bench),
 	TestSequence = generate_test_sequence(),
 	% warmup_test(1000, ?TEST_PERIOD, Uri),
