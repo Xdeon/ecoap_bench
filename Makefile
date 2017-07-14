@@ -14,4 +14,4 @@ app:: rebar.config
 
 ERLC_OPTS += +report +verbose +warn_deprecated_function +warn_deprecated_type +warn_untyped_record +warn_unused_import
 
-# SHELL_OPTS = +K true +sbt s
+SHELL_OPTS = +K true
