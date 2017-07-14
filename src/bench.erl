@@ -51,8 +51,11 @@ test_func(N, Time, Uri) ->
 	#{time:=TestTime, rec:=Recv, timeout:=Timeout, throughput:=Throughput, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95} = ecoap_bench_server:start_test(N, Time, Uri), 
 	io:fwrite("c=~p, t=~.3f, received=~p, timeouts=~p, throughput=~.2f, uri=~s, min=~pms, max=~pms, mean=~.3fms, median=~.3fms, stddev=~.3fms, ptile95=~.3fms~n",
 		[N, TestTime, Recv, Timeout, Throughput, Uri, Min, Max, Mean, Median, Stddev, Ptile95]),
+	sleep(?INTERVAL).
+
+sleep(Time) ->
 	receive
-		after ?INTERVAL ->
+		after Time ->
 			ok
-	end,
-	ok.
+	end.
+
