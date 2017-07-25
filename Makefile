@@ -6,6 +6,9 @@ DEPS = hdr_histogram ecoap_common
 dep_hdr_histogram = git https://github.com/HdrHistogram/hdr_histogram_erl master
 dep_ecoap_common = git https://Xdeon@bitbucket.org/Xdeon/ecoap_common.git dev
 
+TEST_DEPS = ecoap
+dep_ecoap = git https://Xdeon@bitbucket.org/Xdeon/ecoap.git master
+
 include erlang.mk
 
 app:: rebar.config
