@@ -154,16 +154,6 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, clien
 		Result#{time:=TestTime/1000, throughput:=Rec/TestTime*1000, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95}},
 	{noreply, State#state{result=new_result(), worker_pids=[], worker_counter=0, start_time=undefined, test_time=undefined, hdr_ref=undefined}};
 
-handle_cast({unexpected_response, _Pid, Ref}, State=#state{worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
-	case gb_sets:is_member(Ref, WorkerRefs) of
-		true -> 
-			ok = hdr_histogram:close(Main_HDR_Ref),
-			io:fwrite("Test failed because of unexpected response~n"),
-			{stop, shutdown, State};
-		false ->
-			{noreply, State}
-	end;
-
 handle_cast(_Msg, State) ->
 	io:fwrite("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
 	{noreply, State}.

@@ -61,7 +61,7 @@ init([Server, ID]) ->
 	process_flag(trap_exit, true),
 	{ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
 	{ok, HDR_Ref} = hdr_histogram:open(3600000000, 3),
-	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid(), enable=true, sent=0, rec=0, timeout=0, hdr_ref=HDR_Ref}}.
+	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=first_mid(), enable=false, sent=0, rec=0, timeout=0, hdr_ref=HDR_Ref}}.
 
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
@@ -73,7 +73,7 @@ handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, sock
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{req=Request1, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
+	{noreply, State#state{enable=true, req=Request1, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
 
 handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, hdr_ref=HDR_Ref, worker_ref=Ref}) ->
 	gen_server:cast(Server, {result, self(), Ref, #{sent=>Sent, rec=>Rec, timeout=>TimeOut}, HDR_Ref}),
