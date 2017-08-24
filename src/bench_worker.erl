@@ -73,7 +73,7 @@ handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, sock
 	Request1 = Request0#coap_message{id=MsgId},
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{enable=true, req=Request1, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
+	{noreply, State#state{enable=true, req=Request0, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
 
 handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, hdr_ref=HDR_Ref, worker_ref=Ref}) ->
 	gen_server:cast(Server, {result, self(), Ref, #{sent=>Sent, rec=>Rec, timeout=>TimeOut}, HDR_Ref}),
@@ -89,10 +89,10 @@ handle_cast(_Msg, State=#state{id=ID}) ->
 
 % incoming ACK(2) response to a request with code {ok, _}
 handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:5, MsgId:16, _/bytes>>}, 
-	State=#state{enable=true, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, rec=Rec, timer=Timer, timestamp=Timestamp, hdr_ref=HDR_Ref}) ->
+	State=#state{enable=true, socket=Socket, nextmid=MsgId, req=Request, sent=Sent, rec=Rec, timer=Timer, timestamp=Timestamp, hdr_ref=HDR_Ref}) ->
 	_ = erlang:cancel_timer(Timer, [{async, true}, {info, false}]),
-	NextMsgId = next_mid(MsgId),
 	ok = hdr_histogram:record(HDR_Ref, erlang:convert_time_unit(erlang:monotonic_time() - Timestamp, native, micro_seconds)),
+	NextMsgId = next_mid(MsgId),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
@@ -103,6 +103,7 @@ handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class
 	io:fwrite("Recv wrong msg, expect type:~p id:~p code:~p but recevied type:~p id:~p code:~p~n", 
 	['ACK', ExpectedMsgId, '{2,xx}', coap_iana:decode_type(T), MsgId, {Class, DetailedCode}]),
 	{noreply, State};
+
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{enable=true, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
 	NextMsgId = next_mid(MsgId),
