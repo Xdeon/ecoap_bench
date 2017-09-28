@@ -23,7 +23,7 @@
 	socket = undefined :: inet:socket(),
 	nextmid = undefined :: non_neg_integer(),
 	enable = undefined :: boolean(),
-	req = undefined :: undefined | coap_message(),
+	req = undefined :: undefined | coap_message:coap_message(),
 	ep_id = undefined :: undefined| {inet:ip_address(), inet:port_number()},
 	sent = undefined :: non_neg_integer(),
 	rec = undefined :: non_neg_integer(),
@@ -33,8 +33,6 @@
 	hdr_ref = undefined :: binary(),
 	worker_ref = undefined :: undefined | reference()
 }).
-
--include_lib("ecoap_common/include/coap_def.hrl").
 
 %% API.
 
@@ -46,9 +44,9 @@ start_link(Server, ID) ->
 close(Pid) ->
 	gen_server:cast(Pid, shutdown).
 
--spec start_test(pid(), reference(), {coap_method(), list(), coap_content() | binary()}) -> ok.
-start_test(Pid, Ref, {Method, Uri, Content}) ->
-	gen_server:cast(Pid, {start_test, Ref, {Method, Uri, convert_content(Content)}}).
+-spec start_test(pid(), reference(), {string(), coap_message:coap_method(), binary()}) -> ok.
+start_test(Pid, Ref, {Uri, Method, Payload}) ->
+	gen_server:cast(Pid, {start_test, Ref, {Uri, Method, Payload}}).
 
 -spec stop_test(pid()) -> ok.
 stop_test(Pid) ->
@@ -66,14 +64,13 @@ init([Server, ID]) ->
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
-handle_cast({start_test, Ref, {Method, Uri, Content}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
+handle_cast({start_test, Ref, {Uri, Method, Payload}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
 	{_Scheme, _Host, EpID={PeerIP, PeerPortNo}, Path, Query} = ecoap_utils:decode_uri(Uri),
-	Options = ecoap_utils:add_option('Uri-Query', Query, ecoap_utils:add_option('Uri-Path', Path, #{})),
-	Request0 = ecoap_utils:request('CON', Method, Content, Options),
-	Request1 = Request0#coap_message{id=MsgId},
-	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request1)),
+	Options = coap_message:add_option('Uri-Query', Query, coap_message:add_option('Uri-Path', Path, #{})),
+	Request = coap_message:set_id(MsgId, ecoap_request:request('CON', Method, Options, Payload)),
+	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{enable=true, req=Request0, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
+	{noreply, State#state{enable=true, req=Request, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
 
 handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, hdr_ref=HDR_Ref, worker_ref=Ref}) ->
 	gen_server:cast(Server, {result, self(), Ref, #{sent=>Sent, rec=>Rec, timeout=>TimeOut}, HDR_Ref}),
@@ -93,7 +90,7 @@ handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:
 	_ = erlang:cancel_timer(Timer, [{async, true}, {info, false}]),
 	ok = hdr_histogram:record(HDR_Ref, erlang:convert_time_unit(erlang:monotonic_time() - Timestamp, native, micro_seconds)),
 	NextMsgId = next_mid(MsgId),
-	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
+	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(coap_message:set_id(NextMsgId, Request))),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
 
@@ -107,7 +104,7 @@ handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{enable=true, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
 	NextMsgId = next_mid(MsgId),
-	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request#coap_message{id=NextMsgId})),
+	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(coap_message:set_id(NextMsgId, Request))),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
 
@@ -123,9 +120,6 @@ code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
 
 %% Internal
-
-convert_content(Content=#coap_content{}) -> Content;
-convert_content(Content) when is_binary(Content) -> #coap_content{payload=Content}.
 
 first_mid() ->
     _ = rand:seed(exs1024),

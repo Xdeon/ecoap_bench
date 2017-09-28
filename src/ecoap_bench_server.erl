@@ -41,8 +41,6 @@
 							ptile95 := float()
 						}.
 
--include_lib("ecoap_common/include/coap_def.hrl").
-
 %% API.
 
 -spec start_link(pid()) -> {ok, pid()}.
@@ -53,14 +51,14 @@ start_link(SupPid) ->
 start_test(N, Time, Uri) ->
 	start_test(N, Time, Uri, 'GET').
 
--spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_method()) -> ok | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method()) -> ok | {error, any()}.
 start_test(N, Time, Uri, Method) ->
-	start_test(N, Time, Uri, Method, #coap_content{}).
+	start_test(N, Time, Uri, Method, <<>>).
 
--spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_method(), coap_content() | binary()) -> test_result() | {error, any()}.
-start_test(N, Time, Uri, Method, Content) ->
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method(), binary()) -> test_result() | {error, any()}.
+start_test(N, Time, Uri, Method, Payload) ->
 	start_workers(N),
-	go_test(Time, {Method, Uri, Content}),
+	go_test(Time, {Uri, Method, Payload}),
 	Ref = erlang:monitor(process, whereis(?MODULE)),
 	receive
 		{test_result, _TestTime, Result2} ->
@@ -75,9 +73,9 @@ start_test(N, Time, Uri, Method, Content) ->
 start_workers(N) ->
 	gen_server:cast(?MODULE, {start_workers, N}).
 
--spec go_test(non_neg_integer(), {coap_method(), list(), coap_content() | binary() | list()}) -> ok.
-go_test(Time, {Method, Uri, Content}) ->
-	gen_server:cast(?MODULE, {start_test, Time, {Method, Uri, Content}, self()}).
+-spec go_test(non_neg_integer(), {string(), coap_message:coap_method(), binary()}) -> ok.
+go_test(Time, {Uri, Method, Payload}) ->
+	gen_server:cast(?MODULE, {start_test, Time, {Uri, Method, Payload}, self()}).
 
 %% gen_server.
 
@@ -102,10 +100,10 @@ handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup}) ->
 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), link(Pid), Pid end || ID <- lists:seq(1, N)],
 	{noreply, State#state{worker_pids=Pids, worker_counter=N}};
 
-handle_cast({start_test, Time, {Method, Uri, Content}, Client}, State=#state{worker_pids=WorkerPids}) ->
+handle_cast({start_test, Time, {Uri, Method, Payload}, Client}, State=#state{worker_pids=WorkerPids}) ->
 	% io:fwrite("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
 	{ok, Main_HDR_Ref} = hdr_histogram:open(3600000000, 3),
-	WorkerRefs0 = [begin Ref = make_ref(), bench_worker:start_test(Pid, Ref, {Method, Uri, Content}), Ref end || Pid <- WorkerPids],
+	WorkerRefs0 = [begin Ref = make_ref(), bench_worker:start_test(Pid, Ref, {Uri, Method, Payload}), Ref end || Pid <- WorkerPids],
 	StartTime = erlang:monotonic_time(),
 	_ = erlang:send_after(Time*1000, self(), timeout),
 	WorkerRefs = gb_sets:from_list(WorkerRefs0),
