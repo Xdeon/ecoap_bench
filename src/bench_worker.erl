@@ -14,7 +14,6 @@
 -export([code_change/3]).
 
 -define(VERSION, 1).
--define(MAX_MESSAGE_ID, 65535). % 16-bit number
 -define(TIMEOUT, 10000).
 
 -record(state, {

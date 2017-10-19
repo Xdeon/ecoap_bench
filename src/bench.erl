@@ -2,7 +2,7 @@
 -export([start_test/1]).
 % -export([generate_test_sequence/0]).
 
--define(INTERVAL, 40000).
+-define(INTERVAL, 30000).
 % -define(TEST_CYCLE, 10).
 -define(TEST_PERIOD, 60).
 
@@ -12,7 +12,7 @@ start_test(Uri) ->
 	% TestSequence = generate_test_sequence(),
 	% warmup_test(1000, ?TEST_PERIOD, Uri),
 	% ok = run_test(Uri, TestSequence),
-	[test_func(N, ?TEST_PERIOD, Uri) || N <- lists:seq(1, 9)],
+	% [test_func(N, ?TEST_PERIOD, Uri) || N <- lists:seq(1, 9)],
 	[test_func(N, ?TEST_PERIOD, Uri) || N <- lists:seq(10, 90, 10)],
 	[test_func(N, ?TEST_PERIOD, Uri) || N <- lists:seq(100, 200, 25)],
 	[test_func(N, ?TEST_PERIOD, Uri) || N <- lists:seq(300, 900, 100)],
@@ -54,8 +54,4 @@ test_func(N, Time, Uri) ->
 	sleep(?INTERVAL).
 
 sleep(Time) ->
-	receive
-		after Time ->
-			ok
-	end.
-
+	timer:sleep(Time).

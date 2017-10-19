@@ -6,7 +6,7 @@ DEPS = hdr_histogram
 dep_hdr_histogram = git https://github.com/HdrHistogram/hdr_histogram_erl master
 
 BUILD_DEPS = ecoap
-dep_ecoap = git https://Xdeon@bitbucket.org/Xdeon/ecoap.git unified_api
+dep_ecoap = git https://Xdeon@bitbucket.org/Xdeon/ecoap.git morepd
 
 include erlang.mk
 
