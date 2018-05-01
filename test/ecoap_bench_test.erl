@@ -5,7 +5,7 @@
 througput_test_() ->
 	{setup,
 		fun() ->
-            ok = benchmark:start(),
+            {ok, _} = benchmark:start(),
             {ok, _} = application:ensure_all_started(ecoap_bench)
         end,
         fun(_State) ->

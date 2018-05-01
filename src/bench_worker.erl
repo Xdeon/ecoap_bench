@@ -64,7 +64,7 @@ handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
 handle_cast({start_test, Ref, {Uri, Method, Payload}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
-	{_Scheme, _Host, EpID={PeerIP, PeerPortNo}, Path, Query} = ecoap_utils:decode_uri(Uri),
+	{_Scheme, _Host, EpID={PeerIP, PeerPortNo}, Path, Query} = ecoap_uri:decode_uri(Uri),
 	Options = coap_message:add_option('Uri-Query', Query, coap_message:add_option('Uri-Path', Path, #{})),
 	Request = coap_message:set_id(MsgId, ecoap_request:request('CON', Method, Options, Payload)),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request)),
