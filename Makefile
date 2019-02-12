@@ -4,7 +4,7 @@ PROJECT_VERSION = 0.1.0
 
 DEPS = hdr_histogram ecoap
 dep_hdr_histogram = git https://github.com/HdrHistogram/hdr_histogram_erl master
-dep_ecoap = git https://Xdeon@bitbucket.org/Xdeon/ecoap.git dev
+dep_ecoap = git https://Xdeon@bitbucket.org/Xdeon/ecoap.git functional_core
 
 # NO_AUTOPATCH += hdr_histogram
 
