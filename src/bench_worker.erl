@@ -23,7 +23,7 @@
 	nextmid = undefined :: non_neg_integer(),
 	enable = undefined :: boolean(),
 	req = undefined :: undefined | coap_message:coap_message(),
-	ep_id = undefined :: undefined| {inet:ip_address(), inet:port_number()},
+	ep_addr = undefined :: undefined| {inet:ip_address(), inet:port_number()},
 	sent = undefined :: non_neg_integer(),
 	rec = undefined :: non_neg_integer(),
 	timeout = undefined :: non_neg_integer(),
@@ -64,12 +64,12 @@ handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
 handle_cast({start_test, Ref, {Uri, Method, Payload}}, State=#state{id=_ID, socket=Socket, nextmid=MsgId}) ->
-	{_Scheme, _Host, EpID={PeerIP, PeerPortNo}, Path, Query} = ecoap_uri:decode_uri(Uri),
+	#{ip:=PeerIP, port:=PeerPortNo, path:=Path, 'query':=Query} = ecoap_uri:decode_uri(Uri),
 	Options = coap_message:add_option('Uri-Query', Query, coap_message:add_option('Uri-Path', Path, #{})),
 	Request = coap_message:set_id(MsgId, ecoap_request:request('CON', Method, Options, Payload)),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(Request)),
 	Timer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
-	{noreply, State#state{enable=true, req=Request, ep_id=EpID, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
+	{noreply, State#state{enable=true, req=Request, ep_addr={PeerIP, PeerPortNo}, sent=1, timer=Timer, timestamp=erlang:monotonic_time(), worker_ref=Ref}};
 
 handle_cast(stop_test, State=#state{id=_ID, server=Server, sent=Sent, rec=Rec, timeout=TimeOut, hdr_ref=HDR_Ref, worker_ref=Ref}) ->
 	gen_server:cast(Server, {result, self(), Ref, #{sent=>Sent, rec=>Rec, timeout=>TimeOut}, HDR_Ref}),
@@ -101,7 +101,7 @@ handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class
 	{noreply, State};
 
 handle_info({timeout, Timer, req_timeout}, 
-	State=#state{enable=true, ep_id={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
+	State=#state{enable=true, ep_addr={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
 	NextMsgId = ecoap_message_id:next_mid(MsgId),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(coap_message:set_id(NextMsgId, Request))),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),

@@ -47,24 +47,24 @@
 start_link(SupPid) ->
 	proc_lib:start_link(?MODULE, init, [SupPid]).
 
--spec start_test(non_neg_integer(), non_neg_integer(), string()) -> ok | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string()) -> {ok, test_result()} | {error, any()}.
 start_test(N, Time, Uri) ->
 	start_test(N, Time, Uri, 'GET').
 
--spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method()) -> ok | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method()) -> {ok, test_result()} | {error, any()}.
 start_test(N, Time, Uri, Method) ->
 	start_test(N, Time, Uri, Method, <<>>).
 
--spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method(), binary()) -> test_result() | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method(), binary()) -> {ok, test_result()} | {error, any()}.
 start_test(N, Time, Uri, Method, Payload) ->
 	start_workers(N),
 	go_test(Time, {Uri, Method, Payload}),
 	Ref = erlang:monitor(process, whereis(?MODULE)),
 	receive
-		{test_result, _TestTime, Result2} ->
+		{test_result, _TestTime, Result} ->
 			erlang:demonitor(Ref, [flush]),
 			% io:fwrite("Test complete~nTest Time: ~p~n", [TestTime/1000]),
-			Result2;
+			{ok, Result};
 		{'DOWN', Ref, process, _Pid, Reason} ->
 			{error, Reason}
 	end.
