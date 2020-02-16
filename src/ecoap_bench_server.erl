@@ -8,6 +8,7 @@
 
 %% gen_server.
 -export([init/1]).
+-export([handle_continue/2]).
 -export([handle_call/3]).
 -export([handle_cast/2]).
 -export([handle_info/2]).
@@ -15,10 +16,9 @@
 -export([code_change/3]).
 
 -record(state, {
-	worker_sup = undefined :: pid(),
+	worker_sup = undefined :: undefined | pid(),
 	% start_worker_id = undefined :: non_neg_integer(),
 	worker_pids = undefined :: [pid()],
-	worker_counter = undefined :: non_neg_integer(),
 	worker_refs = undefined :: gb_sets:set(reference()),
 	start_time = undefined :: undefined | integer(),
 	test_time = undefined :: undefined | non_neg_integer(),
@@ -45,7 +45,7 @@
 
 -spec start_link(pid()) -> {ok, pid()}.
 start_link(SupPid) ->
-	proc_lib:start_link(?MODULE, init, [SupPid]).
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [SupPid], []).
 
 -spec start_test(non_neg_integer(), non_neg_integer(), string()) -> {ok, test_result()} | {error, any()}.
 start_test(N, Time, Uri) ->
@@ -79,26 +79,20 @@ go_test(Time, {Uri, Method, Payload}) ->
 
 %% gen_server.
 
-init(SupPid) ->
-	register(?MODULE, self()),
-	ok = proc_lib:init_ack({ok, self()}),
-	{ok, Pid} = supervisor:start_child(SupPid, 
-		#{id => bench_worker_sup, 
-		start => {bench_worker_sup, start_link, []}, 
-		restart => temporary, 
-		shutdown => infinity, 
-		type => supervisor,
-		modules => [bench_worker_sup]}),
-    link(Pid),
-    gen_server:enter_loop(?MODULE, [], 
-    	#state{worker_sup=Pid, worker_pids=[], worker_counter=0, worker_refs=gb_sets:new(), result=new_result()}, {local, ?MODULE}).
+init([SupPid]) ->
+	process_flag(trap_exit, true),
+    {ok, #state{worker_pids=[], worker_refs=gb_sets:new(), result=new_result()}, {continue, {init, SupPid}}}.
+
+handle_continue({init, SupPid}, State) ->
+	Pid = ecoap_bench_sup:find_child(SupPid, bench_worker_sup),
+	{noreply, State#state{worker_sup=Pid}}.
 
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
 
 handle_cast({start_workers, N}, State=#state{worker_sup=WorkerSup}) -> 
 	Pids = [begin {ok, Pid} = bench_worker_sup:start_worker(WorkerSup, [self(), ID]), link(Pid), Pid end || ID <- lists:seq(1, N)],
-	{noreply, State#state{worker_pids=Pids, worker_counter=N}};
+	{noreply, State#state{worker_pids=Pids}};
 
 handle_cast({start_test, Time, {Uri, Method, Payload}, Client}, State=#state{worker_pids=WorkerPids}) ->
 	% io:fwrite("start ~p clients for ~pms~n", [length(WorkerPids), Time*1000]),
@@ -110,7 +104,7 @@ handle_cast({start_test, Time, {Uri, Method, Payload}, Client}, State=#state{wor
 	{noreply, State#state{start_time=StartTime, client=Client, hdr_ref=Main_HDR_Ref, worker_refs=WorkerRefs}};
 
 handle_cast({result, Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, HDR_Ref}, 
-	State=#state{result=Result, worker_counter=Cnt, worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
+	State=#state{result=Result, worker_refs=WorkerRefs, hdr_ref=Main_HDR_Ref}) ->
 	case gb_sets:is_member(Ref, WorkerRefs) of
 		true ->
 			#{sent:=ASent, rec:=ARec, timeout:=ATimeOut} = Result,
@@ -119,14 +113,12 @@ handle_cast({result, Pid, Ref, _R=#{sent:=WSent, rec:=WRec, timeout:=WTimeOut}, 
 			_ = hdr_histogram:add(Main_HDR_Ref, HDR_Ref),
 			% let the worker clean up and shutdown
 			bench_worker:close(Pid),
-			NewCnt = Cnt - 1,
-			case NewCnt of
-				0 -> 
-					gen_server:cast(self(), test_complete);
-				Else when Else > 0 ->
-					ok
+			NewWorkerRefs = gb_sets:delete(Ref, WorkerRefs),
+			case gb_sets:is_empty(NewWorkerRefs) of
+				true -> gen_server:cast(self(), test_complete);
+				false -> ok
 			end,
-			{noreply, State#state{result=NewResult, worker_counter=NewCnt, worker_refs=gb_sets:delete(Ref, WorkerRefs)}};
+			{noreply, State#state{result=NewResult, worker_refs=NewWorkerRefs}};
 		false ->
 			{noreply, State}
 	end;
@@ -150,7 +142,7 @@ handle_cast(test_complete, State=#state{result=Result, test_time=TestTime, clien
 	ok = hdr_histogram:close(Main_HDR_Ref),
 	Client ! {test_result, TestTime, 
 		Result#{time:=TestTime/1000, throughput:=Rec/TestTime*1000, min:=Min, max:=Max, mean:=Mean, median:=Median, stddev:=Stddev, ptile95:=Ptile95}},
-	{noreply, State#state{result=new_result(), worker_pids=[], worker_counter=0, start_time=undefined, test_time=undefined, hdr_ref=undefined}};
+	{noreply, State#state{result=new_result(), worker_pids=[], worker_refs = gb_sets:new(), start_time=undefined, test_time=undefined, hdr_ref=undefined}};
 
 handle_cast(_Msg, State) ->
 	io:fwrite("unexpected cast in ecoap_bench_server: ~p~n", [_Msg]),
@@ -163,7 +155,13 @@ handle_info(timeout, State=#state{worker_pids=WorkerPids, start_time=StartTime})
 
 % handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
 % 	handle_down_worker(Ref, Pid, Reason, State);
-
+handle_info({'EXIT', Pid, normal}, State=#state{worker_pids=WorkerPids}) ->
+	{noreply, State#state{worker_pids=lists:delete(Pid, WorkerPids)}};
+handle_info({'EXIT', Pid, Reason}, State=#state{worker_pids=WorkerPids}) ->
+	case lists:member(Pid, WorkerPids) of
+		true -> {stop, {worker_failure, Reason}, State};
+		false -> {noreply, State}
+	end;
 handle_info(_Info, State) ->
 	io:fwrite("unexpected info in ecoap_bench_server: ~p~n", [_Info]),
 	{noreply, State}.

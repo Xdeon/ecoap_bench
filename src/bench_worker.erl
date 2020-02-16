@@ -58,7 +58,7 @@ init([Server, ID]) ->
 	process_flag(trap_exit, true),
 	{ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
 	{ok, HDR_Ref} = hdr_histogram:open(3600000000, 3),
-	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=ecoap_message_id:first_mid(), enable=false, sent=0, rec=0, timeout=0, hdr_ref=HDR_Ref}}.
+	{ok, #state{server=Server, socket=Socket, id=ID, nextmid=coap_message_id:first_mid(), enable=false, sent=0, rec=0, timeout=0, hdr_ref=HDR_Ref}}.
 
 handle_call(_Request, _From, State) ->
 	{noreply, State}.
@@ -88,7 +88,7 @@ handle_info({udp, Socket, PeerIP, PeerPortNo, <<?VERSION:2, 2:2, _TKL:4, 2:3, _:
 	State=#state{enable=true, socket=Socket, nextmid=MsgId, req=Request, sent=Sent, rec=Rec, timer=Timer, timestamp=Timestamp, hdr_ref=HDR_Ref}) ->
 	_ = erlang:cancel_timer(Timer, [{async, true}, {info, false}]),
 	ok = hdr_histogram:record(HDR_Ref, erlang:convert_time_unit(erlang:monotonic_time() - Timestamp, native, micro_seconds)),
-	NextMsgId = ecoap_message_id:next_mid(MsgId),
+	NextMsgId = coap_message_id:next_mid(MsgId),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(coap_message:set_id(NextMsgId, Request))),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{rec=Rec+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
@@ -102,7 +102,7 @@ handle_info({udp, Socket, _PeerIP, _PeerPortNo, <<?VERSION:2, T:2, _TKL:4, Class
 
 handle_info({timeout, Timer, req_timeout}, 
 	State=#state{enable=true, ep_addr={PeerIP, PeerPortNo}, socket=Socket, req=Request, nextmid=MsgId, sent=Sent, timeout=TimeOut, timer=Timer}) ->
-	NextMsgId = ecoap_message_id:next_mid(MsgId),
+	NextMsgId = coap_message_id:next_mid(MsgId),
 	ok = inet_udp:send(Socket, PeerIP, PeerPortNo, coap_message:encode(coap_message:set_id(NextMsgId, Request))),
 	NewTimer = erlang:start_timer(?TIMEOUT, self(), req_timeout),
 	{noreply, State#state{timeout=TimeOut+1, sent=Sent+1, nextmid=NextMsgId, timer=NewTimer, timestamp=erlang:monotonic_time()}};
