@@ -51,11 +51,11 @@ start_link(SupPid) ->
 start_test(N, Time, Uri) ->
 	start_test(N, Time, Uri, 'GET').
 
--spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method()) -> {ok, test_result()} | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), ecoap_message:coap_method()) -> {ok, test_result()} | {error, any()}.
 start_test(N, Time, Uri, Method) ->
 	start_test(N, Time, Uri, Method, <<>>).
 
--spec start_test(non_neg_integer(), non_neg_integer(), string(), coap_message:coap_method(), binary()) -> {ok, test_result()} | {error, any()}.
+-spec start_test(non_neg_integer(), non_neg_integer(), string(), ecoap_message:coap_method(), binary()) -> {ok, test_result()} | {error, any()}.
 start_test(N, Time, Uri, Method, Payload) ->
 	start_workers(N),
 	go_test(Time, {Uri, Method, Payload}),
@@ -73,7 +73,7 @@ start_test(N, Time, Uri, Method, Payload) ->
 start_workers(N) ->
 	gen_server:cast(?MODULE, {start_workers, N}).
 
--spec go_test(non_neg_integer(), {string(), coap_message:coap_method(), binary()}) -> ok.
+-spec go_test(non_neg_integer(), {string(), ecoap_message:coap_method(), binary()}) -> ok.
 go_test(Time, {Uri, Method, Payload}) ->
 	gen_server:cast(?MODULE, {start_test, Time, {Uri, Method, Payload}, self()}).
 
