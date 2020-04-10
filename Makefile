@@ -12,6 +12,6 @@ include erlang.mk
 
 app:: rebar.config
 
-ERLC_OPTS += +report +verbose +warn_deprecated_function +warn_deprecated_type +warn_untyped_record +warn_unused_import
+ERLC_OPTS += +report +verbose +warn_deprecated_function +warn_deprecated_type +warn_untyped_record +warn_unused_import +inline_list_funcs
 
 SHELL_OPTS = +K true +spp true
