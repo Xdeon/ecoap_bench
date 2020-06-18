@@ -17,3 +17,6 @@ ebin/*.beam
 ebin/test
 relx
 test/*.beam
+
+# asdf
+.tool-versions
