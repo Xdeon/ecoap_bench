@@ -1,16 +1,31 @@
 -module(ecoap_bench_test).
+-export([coap_discover/1, coap_get/4]).
 
 -include_lib("eunit/include/eunit.hrl").
+
+coap_discover(Prefix) ->
+    [{absolute, Prefix, []}].
+
+coap_get(_EpID, [<<"benchmark">>], _Suffix, _Request) ->
+    {ok, ecoap_content:new(<<"hello world">>)}.
+
+start_server() ->
+	{ok, _} = application:ensure_all_started(ecoap),
+	ecoap:start_udp(benchmark, [], #{routes => [{[<<"benchmark">>], ?MODULE}]}).
+
+stop_server() ->
+	ok = ecoap:stop_udp(benchmark),
+	application:stop(ecoap).
 
 througput_test_() ->
 	{setup,
 		fun() ->
-            {ok, _} = benchmark:start(),
+        	{ok, _} = start_server(),
             {ok, _} = application:ensure_all_started(ecoap_bench)
         end,
         fun(_State) ->
-            benchmark:stop(),
-            application:stop(ecoap_bench)
+            ok = stop_server(),
+            ok = application:stop(ecoap_bench)
         end,
         fun run_throughput/1
 	}.
